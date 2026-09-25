@@ -93,8 +93,11 @@
     <p class="hint" id="growthHint"></p>
     <div class="picker" id="picker"></div>
     <div class="objrow">
-      <label for="objAdd">Add a specific object</label>
-      <select id="objAdd"></select>
+      <label for="objSearch">Add a specific object</label>
+      <div class="combo">
+        <input id="objSearch" type="search" autocomplete="off" placeholder="Search 1,000+ models — Daytona, Birkin, Les Paul…">
+        <div class="combo-results" id="objResults" hidden></div>
+      </div>
       <div class="picker" id="objPicked"></div>
     </div>
     <div class="chart-scroll"><svg id="growth" class="chart" role="img" aria-labelledby="growthHint"></svg></div>
@@ -121,8 +124,8 @@
     <h2>The actual things people buy</h2>
     <p class="hint" id="itemHint"></p>
     <div class="toolbar inner">
-      <div class="ctl grow"><label for="itemSearch">Search</label>
-        <input id="itemSearch" type="search" placeholder="Daytona, Birkin, Ferrari…" autocomplete="off"></div>
+      <div class="ctl grow"><label for="itemSearch">Search the catalogue</label>
+        <input id="itemSearch" type="search" placeholder="Submariner, Birkin Togo, Les Paul 1959, Karuizawa…" autocomplete="off"></div>
       <div class="ctl"><label>Measuring</label>
         <div class="seg" id="kindSeg">
           <button type="button" data-v="resale" aria-pressed="true">Resale value</button>
@@ -131,10 +134,25 @@
       </div>
       <div class="ctl"><label for="catSel">Category</label>
         <select id="catSel"><option value="">All</option></select></div>
+      <div class="ctl"><label for="sortSel">Sort by</label>
+        <select id="sortSel">
+          <option value="edge">Gap vs benchmark</option>
+          <option value="cagr">Return per year</option>
+          <option value="price">Price today</option>
+          <option value="name">Name</option>
+        </select></div>
+      <div class="ctl"><label>Data</label>
+        <div class="seg" id="scopeSeg">
+          <button type="button" data-v="all" aria-pressed="true">Everything</button>
+          <button type="button" data-v="tracked" aria-pressed="false">Tracked only</button>
+        </div>
+      </div>
     </div>
+    <p class="scope-note" id="scopeNote"></p>
     <div class="chart-scroll"><svg id="dumbbell" class="chart" role="img" aria-labelledby="itemHint"></svg></div>
     <div class="legend" id="itemLegend"></div>
     <div class="chart-scroll"><table id="itemTable"></table></div>
+    <div class="pager" id="pager"></div>
     <div id="itemDetail"></div>
 
     <details id="addBox">

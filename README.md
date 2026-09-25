@@ -14,7 +14,7 @@ with the boring stuff — the S&P 500, US housing, gold and cash — over any wi
 ```bash
 bun run seed     # build boujee.db from data/assets.json
 bun start        # http://localhost:4321
-bun test         # 41 tests
+bun test         # 50 tests
 ```
 
 `bun run dev` watches and reloads. Set `PORT` to move it off 4321.
@@ -26,7 +26,9 @@ bun test         # 41 tests
 - **Annualised return** for all 12 categories, traditional vs luxury.
 - **The actual objects** — 17 named models (Daytona, Nautilus, Birkin, Chanel Flap, F40, 250 GTO,
   Countach, Cartier Love and more), each against its own benchmark, with its real price path.
-- **Search, and add your own models**, saved to the database for everyone.
+- **Search 1,000+ named models** — by brand, family or variant ("birkin togo", "les paul 1959",
+  "submariner hulk") — and put any of them on the chart.
+- **Add your own models**, saved to the database for everyone.
 - **A table** with total return, ending value, return versus cash, volatility, max drawdown, and
   each asset's best and worst year.
 - **Provenance** for every series, because half of them are estimates and you should know which half.
@@ -99,6 +101,48 @@ Years between anchors are filled **geometrically**, so a stretch between two anc
 one constant rate and agrees with the CAGR reported for it. A straight line in price terms would
 imply a changing growth rate and disagree with every other number on the page.
 
+## The catalogue — 1,000+ models, and what their prices actually are
+
+`data/catalogue.json` holds **1,012 generated models**: Rolex references by material and bezel,
+Seiko divers, Hermès bags by leather and size, Chanel flaps, Cartier and Van Cleef by metal and
+stone, Ferraris and Porsches by condition grade, Stradivari and burst Les Pauls and Mark VI
+saxophones, Minimoogs and TB-303s, first-growth Bordeaux and Karuizawa.
+
+**Read this before trusting a number in it.** There is no public dataset of tracked prices for a
+thousand individual luxury references, and inventing one would wreck the credibility of everything
+else here. So the split is explicit:
+
+| | Real | Derived |
+|---|---|---|
+| **Identity** — brand, family, variant axis, era | ✅ | |
+| **Price level** — roughly what it cost | ✅ | |
+| **Price path** — how it moved year to year | | ⚠️ modelled |
+
+Every generated entry carries the `modelled` badge, states its own derivation in its source line,
+and is **excluded from the headline figures**, which count only hand-sourced series. The
+**Tracked only** toggle hides them entirely.
+
+The derivation, in full:
+
+```
+resale:  price(y) = base × ( categoryIndex(y) / categoryIndex(y₀) ) ^ beta
+retail:  price(y) = base × ( cpi(y) / cpi(y₀) ) × (1 + drift) ^ (y − y₀)
+```
+
+`beta` is how hard a model moves with its category, and `drift` is annual real price escalation
+above inflation. Both vary by variant, because material genuinely changes behaviour: a steel
+Submariner ran far ahead of its gold version, a concours car appreciates faster than a driver, a
+refinished Les Paul lags an all-original one. Without that, every variant of a family would report
+an identical return and differ only in price level.
+
+What this cannot capture: a model that broke from its category (a single discontinued reference
+spiking on its own), thin-market illiquidity, or condition nuance beyond the stated grade. It is a
+searchable map of the market's shape, not a price feed.
+
+Regenerate with `bun tools/generate-catalogue.ts`; the families and variant axes live in
+`tools/families.ts`. Replace any entry with real data by adding it through the app — a hand-entered
+model is tracked, and wins.
+
 ## Named models
 
 `data/items.json` holds specific objects rather than category averages. Each is priced at **anchor
@@ -150,14 +194,18 @@ This is an educational tool, not investment advice.
 ## Layout
 
 ```
-data/assets.json    the 12 category series, with source and confidence for each
-data/items.json     17 named models, priced at anchor years
+data/assets.json    the 13 category series, with source and confidence for each
+data/items.json     17 hand-sourced models, priced at anchor years
+data/catalogue.json 1,012 generated model specifications
+tools/families.ts   the real families and variant axes the catalogue expands from
+tools/generate-catalogue.ts  expands them; tools/og.html is the social card
 src/db.ts           schema, seed and migration (bun:sqlite)
 src/analytics.ts    index building, CAGR, real adjustment, drawdown, volatility, item benchmarks
+src/catalogue.ts    derives a price series from a catalogue specification
 src/items-write.ts  validation and persistence for user-submitted models
 src/server.ts       Bun.serve — the API and static files
 public/             the frontend; charts and the favicon are hand-written SVG, no libraries
-test/               41 tests over the return maths, the write path and interpolation
+test/               50 tests over the return maths, the write path, interpolation and the catalogue
 ```
 
 ### API
@@ -165,7 +213,9 @@ test/               41 tests over the return maths, the write path and interpola
 | | |
 |---|---|
 | `GET /api/analysis?from=&to=&real=&amount=` | per-asset index and dollar paths plus every summary metric |
-| `GET /api/items?from=&to=` | named models with CAGR, benchmark and price anchors |
+| `GET /api/items?q=&category=&kind=&tracked=&sort=&limit=&offset=` | search and page the catalogue (series omitted) |
+| `GET /api/items/:id` | one model, with its price anchors and filled annual path |
+| `GET /api/summary?from=&to=&real=` | the headline counts, over tracked models only |
 | `POST /api/items` | save a new model (JSON body; see the form for the shape) |
 | `DELETE /api/items/:id` | remove a user-added model |
 | `GET /api/provenance` | source and confidence for each category series |

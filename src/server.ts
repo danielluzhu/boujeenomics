@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { analyse, analyseItems } from "./analytics";
+import { analyse, analyseItems, summarise } from "./analytics";
 import { DB_PATH, open, openWritable, seed } from "./db";
 import { ValidationError, deleteItem, insertItem } from "./items-write";
 
@@ -64,18 +64,50 @@ const server = Bun.serve({
       }
     }
 
-    const del = url.pathname.match(/^\/api\/items\/([A-Za-z0-9-]{1,80})$/);
-    if (del && req.method === "DELETE") {
-      return deleteItem(wdb, del[1])
+    const byId = url.pathname.match(/^\/api\/items\/([A-Za-z0-9-]{1,80})$/);
+    if (byId && req.method === "DELETE") {
+      return deleteItem(wdb, byId[1])
         ? json({ ok: true })
         : json({ error: "no such model, or it is part of the shipped catalogue" }, 404);
+    }
+    if (byId) {
+      const q = url.searchParams;
+      const page = analyseItems(db, {
+        ids: [byId[1]],
+        from: clampInt(q.get("from"), 2005, 2005, 2025),
+        to: clampInt(q.get("to"), 2025, 2005, 2025),
+        withSeries: true,
+      });
+      return page.items.length ? json(page.items[0]) : json({ error: "no such model" }, 404);
+    }
+
+    if (url.pathname === "/api/summary") {
+      const q = url.searchParams;
+      return json(summarise(db, {
+        from: clampInt(q.get("from"), 2005, 2005, 2025),
+        to: clampInt(q.get("to"), 2024, 2005, 2025),
+        real: q.get("real") === "1",
+      }));
     }
 
     if (url.pathname === "/api/items") {
       const q = url.searchParams;
+      const kind = q.get("kind");
+      const sort = q.get("sort");
+      // Series arrays dominate the payload at catalogue scale, so the list omits them;
+      // /api/items/:id returns them for the handful of models actually plotted.
       return json(analyseItems(db, {
         from: clampInt(q.get("from"), 2005, 2005, 2025),
         to: clampInt(q.get("to"), 2025, 2005, 2025),
+        q: (q.get("q") ?? "").slice(0, 120),
+        category: q.get("category") || undefined,
+        kind: kind === "retail" || kind === "resale" ? kind : undefined,
+        tracked: q.get("tracked") === "1",
+        ids: q.get("ids") ? q.get("ids")!.split(",").filter(Boolean).slice(0, 24) : undefined,
+        withSeries: q.get("series") === "1",
+        sort: sort === "cagr" || sort === "name" || sort === "price" ? sort : "edge",
+        limit: clampInt(q.get("limit"), 25, 1, 200),
+        offset: clampInt(q.get("offset"), 0, 0, 100000),
       }));
     }
 

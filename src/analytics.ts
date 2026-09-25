@@ -205,44 +205,100 @@ function spanCagr(db: Database, id: string, y0: number, y1: number): number {
   return (Math.pow(compound(rs), 1 / rs.length) - 1) * 100;
 }
 
-export function analyseItems(
-  db: Database,
-  opts: { from: number; to: number } = { from: 0, to: 9999 },
-): ItemMetrics[] {
+export interface ItemQuery {
+  from?: number;
+  to?: number;
+  /** Free text over name, brand and reference. */
+  q?: string;
+  category?: string;
+  kind?: "retail" | "resale";
+  /** Only items with a real tracked series — excludes the generated catalogue. */
+  tracked?: boolean;
+  ids?: string[];
+  limit?: number;
+  offset?: number;
+  sort?: "edge" | "cagr" | "name" | "price";
+  /** Include the price anchors and the filled annual path. Off by default: at catalogue
+   *  scale those arrays dominate the payload. */
+  withSeries?: boolean;
+}
+
+export interface ItemPage { total: number; items: ItemMetrics[] }
+
+export function analyseItems(db: Database, q: ItemQuery = {}): ItemPage {
+  const from = q.from ?? 0, to = q.to ?? 9999;
+
+  const where: string[] = [];
+  const args: (string | number)[] = [];
+  if (q.category) { where.push("i.category_id = ?"); args.push(q.category); }
+  if (q.kind) { where.push("i.kind = ?"); args.push(q.kind); }
+  if (q.tracked) where.push("i.confidence <> 'modelled'");
+  if (q.ids?.length) {
+    where.push(`i.id IN (${q.ids.map(() => "?").join(",")})`);
+    args.push(...q.ids);
+  }
+  if (q.q?.trim()) {
+    // Each term must appear somewhere in the name, brand or reference.
+    for (const term of q.q.trim().toLowerCase().split(/\s+/).slice(0, 6)) {
+      where.push("(lower(i.name) LIKE ? OR lower(i.brand) LIKE ? OR lower(i.ref) LIKE ?)");
+      const like = `%${term}%`;
+      args.push(like, like, like);
+    }
+  }
+  const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+
   const rows = db.query<
     { id: string; name: string; ref: string; brand: string; category_id: string; categoryName: string;
       kind: "retail" | "resale"; blurb: string; source: string; confidence: string; caveat: string;
       origin: string },
-    []
+    (string | number)[]
   >(`SELECT i.id, i.name, i.ref, i.brand, i.category_id, a.name categoryName,
-             i.kind, i.blurb, i.source, i.confidence, i.caveat, i.origin
-      FROM items i JOIN assets a ON a.id = i.category_id ORDER BY i.ord`).all();
+            i.kind, i.blurb, i.source, i.confidence, i.caveat, i.origin
+     FROM items i JOIN assets a ON a.id = i.category_id ${clause} ORDER BY i.ord`).all(...args);
+  if (!rows.length) return { total: 0, items: [] };
 
-  const out: ItemMetrics[] = [];
+  // One query for every matching item's prices, grouped in memory — a per-item query would
+  // be a thousand round trips at catalogue scale.
+  const priceRows = db.query<{ item_id: string; year: number; price: number }, (string | number)[]>(
+    `SELECT p.item_id, p.year, p.price FROM item_prices p
+     JOIN items i ON i.id = p.item_id ${clause}
+     AND p.year BETWEEN ? AND ? ORDER BY p.item_id, p.year`,
+  ).all(...args, from, to);
+
+  const byItem = new Map<string, { year: number; price: number }[]>();
+  for (const r of priceRows) {
+    let list = byItem.get(r.item_id);
+    if (!list) byItem.set(r.item_id, (list = []));
+    list.push({ year: r.year, price: r.price });
+  }
+
+  const spanCache = new Map<string, number>();
+  const cachedSpan = (id: string, y0: number, y1: number) => {
+    const key = `${id}:${y0}:${y1}`;
+    if (!spanCache.has(key)) spanCache.set(key, spanCagr(db, id, y0, y1));
+    return spanCache.get(key)!;
+  };
+
+  const all: ItemMetrics[] = [];
   for (const r of rows) {
-    const points = db.query<{ year: number; price: number }, [string, number, number]>(
-      "SELECT year, price FROM item_prices WHERE item_id = ? AND year BETWEEN ? AND ? ORDER BY year",
-    ).all(r.id, opts.from, opts.to);
-    // One anchor inside the window says nothing about a rate of change.
-    if (points.length < 2) continue;
+    const points = byItem.get(r.id);
+    if (!points || points.length < 2) continue;   // one anchor says nothing about a rate
 
     const firstYear = points[0].year, lastYear = points.at(-1)!.year;
     const firstPrice = points[0].price, lastPrice = points.at(-1)!.price;
     const n = lastYear - firstYear;
     const multiple = lastPrice / firstPrice;
-
-    // Retail price is a cost, so it belongs against inflation; resale value is a return,
-    // so it belongs against the index you'd otherwise have bought.
     const benchmarkId = r.kind === "retail" ? "cpi" : "sp500";
-    const benchmarkCagrPct = spanCagr(db, benchmarkId, firstYear, lastYear);
+    const benchmarkCagrPct = cachedSpan(benchmarkId, firstYear, lastYear);
     const cagrPct = (Math.pow(multiple, 1 / n) - 1) * 100;
 
-    out.push({
+    all.push({
       id: r.id, name: r.name, ref: r.ref, brand: r.brand,
       category: r.category_id, categoryName: r.categoryName, kind: r.kind,
       blurb: r.blurb, source: r.source, confidence: r.confidence, caveat: r.caveat,
       origin: r.origin,
-      points, annual: interpolateAnnual(points),
+      points: q.withSeries ? points : [],
+      annual: q.withSeries ? interpolateAnnual(points) : [],
       firstYear, lastYear, firstPrice, lastPrice, multiple, cagrPct,
       benchmarkId,
       benchmarkName: benchmarkId === "cpi" ? "US inflation" : "S&P 500",
@@ -251,5 +307,44 @@ export function analyseItems(
       benchmarkValue: firstPrice * Math.pow(1 + benchmarkCagrPct / 100, n),
     });
   }
-  return out;
+
+  const dir = q.sort === "name" ? 1 : -1;
+  all.sort((a, b) => {
+    switch (q.sort) {
+      case "name": return a.name.localeCompare(b.name) || a.ref.localeCompare(b.ref);
+      case "cagr": return (b.cagrPct - a.cagrPct) * 1;
+      case "price": return (b.lastPrice - a.lastPrice) * 1;
+      default: return (b.edgePct - a.edgePct) * 1;
+    }
+  });
+  if (q.sort === "name") { /* already ascending */ } else void dir;
+
+  const offset = Math.max(0, q.offset ?? 0);
+  const limit = q.limit ?? all.length;
+  return { total: all.length, items: all.slice(offset, offset + limit) };
+}
+
+/** Headline counts, over tracked items only — the generated catalogue is excluded. */
+export function summarise(db: Database, opts: { from: number; to: number; real: boolean }) {
+  const a = analyse(db, { ...opts, amount: 10000 });
+  const sp = a.assets.find((x) => x.id === "sp500")!;
+  const lux = a.assets.filter((x) => x.class === "luxury");
+
+  const tracked = analyseItems(db, { from: opts.from, to: opts.to, tracked: true }).items;
+  const resale = tracked.filter((i) => i.kind === "resale");
+  const retail = tracked.filter((i) => i.kind === "retail").sort((x, y) => y.edgePct - x.edgePct);
+
+  const catalogue = db.query<{ n: number }, []>(
+    "SELECT COUNT(*) n FROM items WHERE confidence = 'modelled'",
+  ).get()!.n;
+
+  return {
+    from: a.from, to: a.to, real: a.real,
+    objects: { beat: resale.filter((i) => i.edgePct > 0).length, of: resale.length },
+    categories: { beat: lux.filter((x) => x.cagrPct > sp.cagrPct).length, of: lux.length },
+    spCagrPct: sp.cagrPct,
+    cpi: a.cpi,
+    catalogueCount: catalogue,
+    topRetail: retail[0] ?? null,
+  };
 }

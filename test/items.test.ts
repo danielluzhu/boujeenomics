@@ -1,7 +1,10 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
 import { unlinkSync } from "node:fs";
-import { analyseItems, interpolateAnnual } from "../src/analytics";
+import { analyseItems, interpolateAnnual, summarise } from "../src/analytics";
+
+/** The catalogue is large, so tests ask for what they need rather than everything. */
+const items = (q: any = {}) => analyseItems(db, { limit: 5000, withSeries: true, ...q }).items;
 import { seed } from "../src/db";
 import { ValidationError, deleteItem, insertItem, validate } from "../src/items-write";
 
@@ -74,7 +77,7 @@ describe("validation", () => {
 describe("insert and delete", () => {
   test("insert makes the model visible to the read path with metrics computed", () => {
     const { id } = insertItem(db, ok);
-    const found = analyseItems(db).find((i) => i.id === id)!;
+    const found = items().find((i) => i.id === id)!;
     expect(found).toBeDefined();
     expect(found.origin).toBe("user");
     expect(found.firstYear).toBe(2018);
@@ -87,24 +90,24 @@ describe("insert and delete", () => {
     const a = insertItem(db, { ...ok, name: "Duplicate Name" });
     const b = insertItem(db, { ...ok, name: "Duplicate Name" });
     expect(a.id).not.toBe(b.id);
-    expect(analyseItems(db).filter((i) => i.name === "Duplicate Name").length).toBe(2);
+    expect(items().filter((i) => i.name === "Duplicate Name").length).toBe(2);
   });
 
   test("retail submissions are benchmarked against inflation, not the index", () => {
     const { id } = insertItem(db, { ...ok, name: "Retail Thing", kind: "retail" });
-    expect(analyseItems(db).find((i) => i.id === id)!.benchmarkId).toBe("cpi");
+    expect(items().find((i) => i.id === id)!.benchmarkId).toBe("cpi");
   });
 
   test("delete removes a user model and its prices", () => {
     const { id } = insertItem(db, { ...ok, name: "Temporary" });
     expect(deleteItem(db, id)).toBe(true);
-    expect(analyseItems(db).some((i) => i.id === id)).toBe(false);
+    expect(items().some((i) => i.id === id)).toBe(false);
     expect(db.query("SELECT COUNT(*) n FROM item_prices WHERE item_id = ?").get(id).n).toBe(0);
   });
 
   test("the shipped catalogue cannot be deleted", () => {
     expect(deleteItem(db, "daytona-116500ln")).toBe(false);
-    expect(analyseItems(db).some((i) => i.id === "daytona-116500ln")).toBe(true);
+    expect(items().some((i) => i.id === "daytona-116500ln")).toBe(true);
   });
 
   test("deleting something that does not exist is a no-op, not a crash", () => {
@@ -114,7 +117,7 @@ describe("insert and delete", () => {
 
 describe("seed items", () => {
   test("every shipped item has at least two anchors and lands inside the year range", () => {
-    for (const i of analyseItems(db).filter((x) => x.origin === "seed")) {
+    for (const i of items({ tracked: true }).filter((x) => x.origin === "seed")) {
       expect(i.points.length).toBeGreaterThanOrEqual(2);
       expect(i.firstYear).toBeGreaterThanOrEqual(2005);
       expect(i.lastYear).toBeLessThanOrEqual(2025);
@@ -123,15 +126,15 @@ describe("seed items", () => {
   });
 
   test("retail items benchmark to CPI and resale items to the S&P", () => {
-    for (const i of analyseItems(db)) {
+    for (const i of items()) {
       expect(i.benchmarkId).toBe(i.kind === "retail" ? "cpi" : "sp500");
     }
   });
 
   test("a window that excludes an item's anchors drops it rather than reporting nonsense", () => {
-    const narrow = analyseItems(db, { from: 2005, to: 2006 });
+    const narrow = items({ from: 2005, to: 2006 });
     expect(narrow.every((i) => i.points.length >= 2)).toBe(true);
-    expect(narrow.length).toBeLessThan(analyseItems(db).length);
+    expect(narrow.length).toBeLessThan(items().length);
   });
 });
 
@@ -167,11 +170,86 @@ describe("annual interpolation", () => {
   });
 
   test("every shipped item yields one price for every year it covers", () => {
-    for (const i of analyseItems(db)) {
+    for (const i of items()) {
       expect(i.annual.length).toBe(i.lastYear - i.firstYear + 1);
       expect(i.annual[0].price).toBe(i.firstPrice);
       expect(i.annual.at(-1)!.price).toBeCloseTo(i.lastPrice, 6);
       expect(i.annual.every((p) => p.price > 0)).toBe(true);
+    }
+  });
+});
+
+describe("catalogue at scale", () => {
+  test("the generated catalogue is present and labelled modelled, never sourced", () => {
+    const all = items();
+    const modelled = all.filter((i) => i.confidence === "modelled");
+    expect(modelled.length).toBeGreaterThan(900);
+    // A generated entry must never claim to be tracked.
+    for (const i of modelled.slice(0, 50)) {
+      expect(i.source).toMatch(/^Modelled:/);
+      expect(i.caveat).toMatch(/Not a tracked price/);
+    }
+  });
+
+  test("headline counts exclude the generated catalogue", () => {
+    const s = summarise(db, { from: 2005, to: 2024, real: false });
+    const tracked = items({ tracked: true });
+    expect(s.objects.of).toBe(tracked.filter((i) => i.kind === "resale").length);
+    expect(s.objects.of).toBeLessThan(40);          // tracked items only, not 1000+
+    expect(s.catalogueCount).toBeGreaterThan(900);
+  });
+
+  test("tracked filter returns only hand-sourced entries", () => {
+    for (const i of items({ tracked: true })) expect(i.confidence).not.toBe("modelled");
+  });
+
+  test("search matches on name, brand and reference, and requires every term", () => {
+    expect(items({ q: "submariner" }).length).toBeGreaterThan(0);
+    expect(items({ q: "rolex submariner" }).every((i) => /rolex/i.test(i.brand + i.name))).toBe(true);
+    expect(items({ q: "birkin togo" }).every((i) => /togo/i.test(i.ref))).toBe(true);
+    expect(items({ q: "zzzz nothing" }).length).toBe(0);
+  });
+
+  test("paging is stable and covers the set exactly once", () => {
+    const total = analyseItems(db, { kind: "resale" }).total;
+    const seen = new Set<string>();
+    for (let off = 0; off < Math.min(total, 200); off += 25) {
+      for (const i of analyseItems(db, { kind: "resale", limit: 25, offset: off }).items) {
+        expect(seen.has(i.id)).toBe(false);
+        seen.add(i.id);
+      }
+    }
+    expect(seen.size).toBe(Math.min(total, 200));
+  });
+
+  test("the list omits series and the detail lookup includes them", () => {
+    const lite = analyseItems(db, { limit: 1 }).items[0];
+    expect(lite.annual.length).toBe(0);
+    const full = analyseItems(db, { ids: [lite.id], withSeries: true }).items[0];
+    expect(full.annual.length).toBeGreaterThan(1);
+  });
+
+  test("every generated entry derives a positive, finite price for each of its years", () => {
+    for (const i of items({ limit: 5000 })) {
+      expect(Number.isFinite(i.firstPrice)).toBe(true);
+      expect(i.firstPrice).toBeGreaterThan(0);
+      expect(i.lastPrice).toBeGreaterThan(0);
+      expect(Number.isFinite(i.cagrPct)).toBe(true);
+    }
+  });
+
+  test("a retail entry tracks inflation and a resale entry tracks its category", () => {
+    const retail = items({ kind: "retail" })[0];
+    const resale = items({ kind: "resale" })[0];
+    expect(retail.benchmarkId).toBe("cpi");
+    expect(resale.benchmarkId).toBe("sp500");
+  });
+
+  test("no entry starts before the dataset or after it ends", () => {
+    for (const i of items({ limit: 5000 })) {
+      expect(i.firstYear).toBeGreaterThanOrEqual(2005);
+      expect(i.lastYear).toBeLessThanOrEqual(2025);
+      expect(i.lastYear).toBeGreaterThan(i.firstYear);
     }
   });
 });

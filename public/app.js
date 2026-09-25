@@ -1,20 +1,17 @@
 // Colour is bound to the asset, permanently — filtering the chart never repaints the survivors.
 // Traditional assets take slots 1-4 solid; luxury takes slots 1-8 dashed, so the asset class is
 // carried by a second channel rather than by hue alone.
-const STYLE = {
-  sp500:     { c: "var(--s1)", dash: "" },
-  housing:   { c: "var(--s2)", dash: "" },
-  gold:      { c: "var(--s3)", dash: "" },
-  cash:      { c: "var(--s4)", dash: "" },
-  watches:   { c: "var(--s1)", dash: "7 4" },
-  handbags:  { c: "var(--s2)", dash: "7 4" },
-  jewellery: { c: "var(--s3)", dash: "7 4" },
-  cars:      { c: "var(--s4)", dash: "7 4" },
-  art:       { c: "var(--s5)", dash: "7 4" },
-  wine:      { c: "var(--s6)", dash: "7 4" },
-  whisky:    { c: "var(--s7)", dash: "7 4" },
-  diamonds:  { c: "var(--s8)", dash: "7 4" },
-};
+// Hue is allocated, never generated: a series takes the lowest free slot of the eight
+// validated ones when it goes on the chart and releases it when it comes off, so removing
+// one line never repaints the others. There are more categories (13) and objects (1000+)
+// than slots, which is exactly why only eight may be on screen at once.
+//
+// Line style carries the class, so a category and an object may share a hue unambiguously:
+//   solid = traditional asset, dashed = luxury category, dotted = a specific object.
+const DASH = { traditional: "", luxury: "7 4", object: "2 4" };
+/** Two-hue encoding for places that show every category at once (bars, tables, chips). */
+const classColor = (cls) => (cls === "traditional" ? "var(--s1)" : "var(--s2)");
+
 const MAX_SERIES = 8;
 const SVG = "http://www.w3.org/2000/svg";
 
@@ -44,6 +41,7 @@ const pct = (v, d = 1) => (v >= 0 ? "+" : "") + v.toFixed(d) + "%";
 
 /* ---------------------------------------------------------------- fetching */
 async function load() {
+  // Re-fetched on every window change so the hero's counts match the window on screen.
   const q = new URLSearchParams({
     from: state.from, to: state.to,
     real: state.real ? "1" : "0", amount: state.amount,
@@ -54,6 +52,21 @@ async function load() {
 }
 
 /* ------------------------------------------------------------------ chrome */
+/** A window change moves the hero counts and every item's span, so all three refetch. */
+async function reload() {
+  await Promise.all([fetchSummary(), load()]);
+  renderHero();
+  itemState.page = 0;
+  itemState.selected = null;
+  objCache.clear();          // cached series are window-scoped
+  await Promise.all([...state.pickedItems].map(async (id) => {
+    const it = await getItemDetail(id);
+    if (!it || itemOverlap(it).years < 1) { state.pickedItems.delete(id); itemSlot.delete(id); }
+  }));
+  renderPicker(); drawGrowth();
+  await refreshItems();
+}
+
 function buildYearSelects() {
   const from = $("#from"), to = $("#to");
   for (let y = 2005; y <= 2024; y++) from.append(new Option(y, y, false, y === state.from));
@@ -61,10 +74,10 @@ function buildYearSelects() {
   $("#amount").value = state.amount;
   for (const b of $("#realSeg").children) b.setAttribute("aria-pressed", String((b.dataset.v === "1") === state.real));
   for (const b of $("#scaleSeg").children) b.setAttribute("aria-pressed", String(b.dataset.v === state.scale));
-  from.onchange = () => { state.from = +from.value; if (state.to <= state.from) { state.to = state.from + 1; to.value = state.to; } load(); };
-  to.onchange = () => { state.to = +to.value; if (state.to <= state.from) { state.from = state.to - 1; from.value = state.from; } load(); };
+  from.onchange = () => { state.from = +from.value; if (state.to <= state.from) { state.to = state.from + 1; to.value = state.to; } reload(); };
+  to.onchange = () => { state.to = +to.value; if (state.to <= state.from) { state.from = state.to - 1; from.value = state.from; } reload(); };
   $("#amount").onchange = (e) => { state.amount = Math.max(1, +e.target.value || 10000); load(); };
-  seg("#realSeg", (v) => { state.real = v === "1"; load(); });
+  seg("#realSeg", (v) => { state.real = v === "1"; reload(); });
   seg("#scaleSeg", (v) => { state.scale = v; drawGrowth(); writeUrl(); });
   seg("#themeSeg", applyTheme);
 
@@ -79,7 +92,7 @@ function applyTheme(v) {
   try { v === "system" ? localStorage.removeItem("boujee-theme") : localStorage.setItem("boujee-theme", v); } catch (e) {}
   writeUrl();
   drawGrowth(); drawBars(); // series colours are CSS vars resolved at draw time
-  if (itemState.all.length) renderItems();
+  if (itemState.rows.length) renderItems();
 }
 
 function seg(sel, fn) {
@@ -102,12 +115,13 @@ function renderPicker() {
     const b = document.createElement("button");
     b.className = "chip";
     b.type = "button";
-    b.style.setProperty("--c", STYLE[a.id].c);
+    // An unselected chip holds no slot, so it shows the class colour rather than reserving a hue.
+    b.style.setProperty("--c", on ? itemColor(a.id) : classColor(a.class));
     b.setAttribute("aria-pressed", String(on));
     b.disabled = !on && totalPicked() >= MAX_SERIES;
-    b.innerHTML = `<span class="dot"></span>${a.name}`;
+    b.innerHTML = `<span class="dot"></span>${esc(a.name)}`;
     b.onclick = () => {
-      if (on) { if (totalPicked() > 1) state.picked.delete(a.id); }
+      if (on) { if (totalPicked() > 1) { state.picked.delete(a.id); releaseSlot(a.id); } }
       else if (totalPicked() < MAX_SERIES) state.picked.add(a.id);
       renderPicker(); drawGrowth(); writeUrl();
     };
@@ -116,10 +130,6 @@ function renderPicker() {
   renderObjectPicker();
 }
 
-/* Item hues are allocated from the same eight slots, not generated. A slot is held for as
-   long as the object is on the chart and released when it comes off, so removing one object
-   never repaints the others. Objects are drawn dotted, so sharing a hue with a category
-   line (solid or dashed) is never ambiguous. */
 const itemSlot = new Map();
 function slotFor(id) {
   if (itemSlot.has(id)) return itemSlot.get(id);
@@ -128,14 +138,9 @@ function slotFor(id) {
   return 1;
 }
 const itemColor = (id) => `var(--s${slotFor(id)})`;
+const releaseSlot = (id) => itemSlot.delete(id);
 
-/** Qualify a model name with its kind only when the catalogue holds more than one of that name. */
-function itemLabel(it) {
-  const dupes = itemState.all.filter((x) => x.name === it.name).length > 1;
-  return dupes ? `${it.name} (${it.kind})` : it.name;
-}
-
-/** Years of this item that fall inside the current chart window. */
+/** Years of this object that fall inside the current chart window. */
 function itemOverlap(it) {
   const ys = state.data.years;
   const from = Math.max(ys[0], it.firstYear);
@@ -143,40 +148,63 @@ function itemOverlap(it) {
   return { from, to, years: to - from };
 }
 
+/* The catalogue is far too large for a dropdown, so objects are found by search and
+   fetched one at a time. Only what is on the chart is ever held in memory. */
+function wireObjectSearch() {
+  const box = $("#objSearch"), results = $("#objResults");
+  const close = () => { results.hidden = true; results.innerHTML = ""; };
+
+  const run = debounce(async () => {
+    const q = box.value.trim();
+    if (q.length < 2) return close();
+    const res = await (await fetch("/api/items?" + new URLSearchParams({
+      q, from: state.from, to: state.to, limit: 10, sort: "name",
+    }))).json();
+
+    if (!res.items.length) {
+      results.innerHTML = `<div class="r-none">Nothing matches “${esc(q)}”.</div>`;
+      results.hidden = false;
+      return;
+    }
+    results.innerHTML = res.items.map((i) =>
+      `<button type="button" data-id="${esc(i.id)}">${esc(i.name)}
+         <span class="r-ref">${esc(i.ref || i.categoryName)} · ${esc(i.kind)}</span></button>`).join("") +
+      (res.total > res.items.length ? `<div class="r-none">${res.total - res.items.length} more — keep typing</div>` : "");
+    results.hidden = false;
+    results.querySelectorAll("button").forEach((b) => b.onclick = async () => {
+      if (totalPicked() >= MAX_SERIES) { toast("Eight lines is the limit — remove one first"); return; }
+      const item = await getItemDetail(b.dataset.id);
+      if (!item) return;
+      if (itemOverlap(item).years < 1) { toast(`${item.name} has no data inside ${state.from}–${state.to}`); return; }
+      state.pickedItems.add(item.id);
+      box.value = ""; close();
+      renderPicker(); drawGrowth(); writeUrl();
+    });
+  }, 220);
+
+  box.addEventListener("input", run);
+  box.addEventListener("focus", run);
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".combo")) close();
+  });
+}
+
 function renderObjectPicker() {
-  const sel = $("#objAdd"), box = $("#objPicked");
-  if (!itemState.all.length) return;
-
-  const plottable = itemState.all
-    .filter((i) => itemOverlap(i).years >= 1)
-    .sort((a, b) => a.name.localeCompare(b.name));
-
-  const full = totalPicked() >= MAX_SERIES;
-  sel.disabled = full;
-  sel.innerHTML = `<option value="">${full ? `Eight lines is the limit — remove one first` : `Add an object…`}</option>` +
-    plottable.filter((i) => !state.pickedItems.has(i.id))
-      .map((i) => `<option value="${esc(i.id)}">${esc(itemLabel(i))}${i.ref ? " — " + esc(i.ref) : ""}</option>`)
-      .join("");
-  sel.onchange = () => {
-    if (sel.value && totalPicked() < MAX_SERIES) state.pickedItems.add(sel.value);
-    sel.value = "";
-    renderPicker(); drawGrowth(); writeUrl();
-  };
-
+  const box = $("#objPicked");
   box.innerHTML = "";
   for (const id of state.pickedItems) {
-    const it = itemState.all.find((x) => x.id === id);
-    if (!it) { state.pickedItems.delete(id); continue; }
+    const it = objCache.get(id);
+    if (!it) continue;
     const b = document.createElement("button");
     b.className = "chip obj";
     b.type = "button";
     b.style.setProperty("--c", itemColor(id));
     b.setAttribute("aria-pressed", "true");
     b.title = `Remove ${itemLabel(it)} from the chart`;
-    b.innerHTML = `<span class="dot"></span>${esc(itemLabel(it))}<span class="x">×</span>`;
+    b.innerHTML = `<span class="dot"></span>${esc(it.name)}<span class="x">×</span>`;
     b.onclick = () => {
       state.pickedItems.delete(id);
-      itemSlot.delete(id);          // release the hue for the next object
+      releaseSlot(id);              // free the hue for the next series
       renderPicker(); drawGrowth(); writeUrl();
     };
     box.append(b);
@@ -191,12 +219,12 @@ function renderObjectPicker() {
 function buildSeries() {
   const d = state.data;
   const out = d.assets.filter((a) => state.picked.has(a.id)).map((a) => ({
-    id: a.id, name: a.name, color: STYLE[a.id].c, dash: STYLE[a.id].dash,
+    id: a.id, name: a.name, color: itemColor(a.id), dash: DASH[a.class] ?? "",
     values: a.values, startIdx: 0, startYear: d.from, isItem: false,
   }));
 
   for (const id of state.pickedItems) {
-    const it = itemState.all.find((x) => x.id === id);
+    const it = objCache.get(id);
     if (!it) continue;
     const { from, years: span } = itemOverlap(it);
     if (span < 1) continue;
@@ -216,7 +244,7 @@ function buildSeries() {
     });
 
     out.push({
-      id, name: itemLabel(it), color: itemColor(id), dash: "2 4",
+      id, name: it.name, color: itemColor(id), dash: DASH.object,
       values, startIdx, startYear: from, isItem: true, kind: it.kind,
     });
   }
@@ -484,10 +512,10 @@ function categoriesBeating(d) {
   return { beat: lux.filter((a) => a.cagrPct > sp.cagrPct).length, of: lux.length, sp };
 }
 
-/** Named resale objects that beat the index over their own span. */
+/** Named resale objects that beat the index — tracked series only, from the server. */
 function objectsBeating() {
-  const resale = itemState.all.filter((i) => i.kind === "resale");
-  return { beat: resale.filter((i) => i.edgePct > 0).length, of: resale.length };
+  const s = itemState.summary?.objects;
+  return s ?? { beat: 0, of: 0 };
 }
 
 function renderHero() {
@@ -502,11 +530,11 @@ function renderHero() {
   // The headline is the finding, so it has to follow the data rather than sit on top of it.
   const n = haveObjects ? objs.beat : cats.beat;
   const of = haveObjects ? objs.of : cats.of;
-  const what = haveObjects ? "" : " luxury categories";
+  const what = haveObjects ? "" : " luxury categories";  // objects need no noun; categories do
   $("#heroTitle").textContent =
     n === 0 ? `Not one of them beat the S&P 500.`
     : n === of ? `All ${of} of them beat the S&P 500.`
-    : n === 1 ? `Only one${what} beat the S&P 500.`
+    : n === 1 ? `Only one of them${what} beat the S&P 500.`
     : `Only ${n} of ${of}${what} beat the S&P 500.`;
 
   $("#heroSub").textContent = haveObjects
@@ -517,8 +545,7 @@ function renderHero() {
       `have bought instead.`;
 
   // The steepest retail climb: what the shop charges, against what money did.
-  const retail = itemState.all.filter((i) => i.kind === "retail")
-    .sort((a, b) => b.edgePct - a.edgePct)[0];
+  const retail = itemState.summary?.topRetail ?? null;
 
   const stats = [
     { fig: `${objs.beat}<em> of </em>${objs.of}`, cap: `named objects that beat the S&P 500 over their own years`,
@@ -563,7 +590,7 @@ const signed2 = (v) => {
   return `<span class="${cls(v)}">${v > 0 ? "+" : "−"}${money(Math.abs(v))}</span>`;
 };
 const COLS = [
-  { k: "name", t: "Asset", fmt: (r) => `<span class="swatch" style="--c:${STYLE[r.id].c}"></span>${r.name}`, num: false },
+  { k: "name", t: "Asset", fmt: (r) => `<span class="swatch" style="--c:${classColor(r.class)}"></span>${esc(r.name)}`, num: false },
   { k: "cagrPct", t: "Per year", fmt: (r) => signed(r.cagrPct) },
   { k: "totalReturnPct", t: "Total", fmt: (r) => signed(r.totalReturnPct, 0) },
   { k: "endValue", t: "Ending value", fmt: (r) => money(r.values.at(-1)) },
@@ -611,67 +638,101 @@ async function renderProvenance() {
         ${r.blurb ? r.blurb + " " : ""}<em>${r.source}.</em>
         ${r.caveat ? `<br><span style="color:var(--muted)">${r.caveat}</span>` : ""}</li>`).join("")}</ul>`;
 }
-
-/* -------------------------------------------------------------------- boot */
-function renderAll() {
-  writeUrl();
-  renderHero(); renderPicker(); drawGrowth(); drawBars(); renderTable();
-  $("#growthHint").textContent =
-    `${state.real ? "Inflation-adjusted" : "Nominal"} value of ${money(state.amount)} invested at the start of ${state.data.from}. ` +
-    `Solid lines are traditional assets, dashed are luxury categories, dotted are specific objects. ` +
-    `Up to ${MAX_SERIES} lines at once.`;
-}
-let t;
-addEventListener("resize", () => {
-  clearTimeout(t);
-  t = setTimeout(() => { drawGrowth(); drawBars(); if (itemState.all.length) renderItems(); }, 120);
-});
-
 /* ============================================================== items view */
 // Item fields can be user-supplied, so everything interpolated into markup is escaped.
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
 const ITEM_COLOR = { resale: "var(--s1)", retail: "var(--s2)" };
-const itemState = { kind: "resale", cat: "", query: "", selected: null, all: [] };
+const PAGE = 25;
+const TRACKED_COUNT_FALLBACK = 17;
 
-async function loadItems() {
-  itemState.all = await (await fetch("/api/items")).json();
-  for (const id of [...state.pickedItems]) {
-    if (!itemState.all.some((i) => i.id === id)) state.pickedItems.delete(id);
-  }
-  const sel = $("#catSel");
-  const cats = [...new Map(itemState.all.map((i) => [i.category, i.categoryName])).entries()];
-  sel.innerHTML = `<option value="">All categories</option>` +
-    cats.map(([id, n]) => `<option value="${esc(id)}">${esc(n)}</option>`).join("");
-  sel.onchange = () => { itemState.cat = sel.value; renderItems(); };
-  seg("#kindSeg", (v) => { itemState.kind = v; itemState.selected = null; renderItems(); });
-  renderItems();
-  if (state.data) { renderHero(); renderPicker(); drawGrowth(); }  // hero quotes item data
+const itemState = {
+  kind: "resale", cat: "", query: "", sort: "edge", scope: "all",
+  page: 0, total: 0, rows: [], selected: null, summary: null,
+};
+
+/** Full records (with series) for the objects currently on the growth chart. */
+const objCache = new Map();
+
+const CONF_LABEL = { high: "sourced", medium: "reported", estimated: "estimated", modelled: "modelled" };
+const confClass = (c) => (c === "high" ? "" : c === "modelled" ? "modelled" : "est");
+
+function itemLabel(it) { return it.ref ? `${it.name} (${it.ref})` : it.name; }
+function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+
+/* ------------------------------------------------------------ data access */
+async function fetchItems() {
+  const q = new URLSearchParams({
+    from: state.from, to: state.to, kind: itemState.kind, sort: itemState.sort,
+    limit: PAGE, offset: itemState.page * PAGE,
+  });
+  if (itemState.query.trim()) q.set("q", itemState.query.trim());
+  if (itemState.cat) q.set("category", itemState.cat);
+  if (itemState.scope === "tracked") q.set("tracked", "1");
+  const res = await (await fetch("/api/items?" + q)).json();
+  itemState.rows = res.items;
+  itemState.total = res.total;
 }
 
-function visibleItems() {
-  const q = itemState.query.trim().toLowerCase();
-  return itemState.all
-    .filter((i) => i.kind === itemState.kind)
-    .filter((i) => !itemState.cat || i.category === itemState.cat)
-    .filter((i) => !q || [i.name, i.brand, i.ref, i.categoryName].join(" ").toLowerCase().includes(q))
-    .sort((a, b) => b.edgePct - a.edgePct);
+async function fetchSummary() {
+  const q = new URLSearchParams({ from: state.from, to: state.to, real: state.real ? "1" : "0" });
+  itemState.summary = await (await fetch("/api/summary?" + q)).json();
+}
+
+/** A full record, cached — the list endpoint omits series at catalogue scale. */
+async function getItemDetail(id) {
+  if (objCache.has(id)) return objCache.get(id);
+  const q = new URLSearchParams({ from: state.from, to: state.to });
+  const res = await fetch(`/api/items/${encodeURIComponent(id)}?` + q);
+  if (!res.ok) return null;
+  const item = await res.json();
+  objCache.set(id, item);
+  return item;
+}
+
+/* -------------------------------------------------------------- rendering */
+async function refreshItems() {
+  await fetchItems();
+  renderItems();
 }
 
 function renderItems() {
-  const rows = visibleItems();
   const retail = itemState.kind === "retail";
   $("#itemHint").textContent = retail
     ? "What the boutique charges. A rising retail price is what the object costs you, not what you earn — so it is measured against inflation."
     : "What you could sell it for. This is the investment question, so it is measured against the S&P 500 over each item's own span.";
+
+  const modelled = (itemState.summary?.catalogueCount ?? 0).toLocaleString();
+  $("#scopeNote").innerHTML = itemState.scope === "tracked"
+    ? `Showing only the models with a hand-sourced price series.`
+    : `<b>${modelled}</b> generated models plus ${TRACKED_COUNT_FALLBACK} hand-sourced ones. A generated model's
+       brand, variant and era are real; its price path is <b>derived</b> from its category index and badged
+       <span class="badge modelled">modelled</span>. Those are excluded from the headline figures above.`;
+
   $("#itemLegend").innerHTML =
     `<span style="--c:${ITEM_COLOR[itemState.kind]}"><i style="border-top-width:0;width:11px;height:11px;border-radius:50%;background:var(--c)"></i>The object</span>` +
     `<span><i class="ring"></i>${retail ? "US inflation" : "S&amp;P 500"}, same years</span>` +
     `<span style="color:var(--muted)">Labels show the gap in percentage points per year.</span>`;
-  drawDumbbell(rows);
-  renderItemTable(rows);
+
+  drawDumbbell(itemState.rows);
+  renderItemTable(itemState.rows);
+  renderPager();
   renderItemDetail();
+}
+
+function renderPager() {
+  const pages = Math.ceil(itemState.total / PAGE);
+  const first = itemState.total ? itemState.page * PAGE + 1 : 0;
+  const last = Math.min(itemState.total, (itemState.page + 1) * PAGE);
+  $("#pager").innerHTML = itemState.total
+    ? `<button type="button" id="prevPage"${itemState.page === 0 ? " disabled" : ""}>Previous</button>
+       <button type="button" id="nextPage"${itemState.page >= pages - 1 ? " disabled" : ""}>Next</button>
+       <span class="count">${first}–${last} of ${itemState.total.toLocaleString()}</span>`
+    : "";
+  const prev = $("#prevPage"), next = $("#nextPage");
+  if (prev) prev.onclick = () => { itemState.page--; itemState.selected = null; refreshItems(); };
+  if (next) next.onclick = () => { itemState.page++; itemState.selected = null; refreshItems(); };
 }
 
 function drawDumbbell(rows) {
@@ -680,7 +741,7 @@ function drawDumbbell(rows) {
   if (!rows.length) { svg.setAttribute("height", 0); return; }
 
   const W = Math.max(svg.clientWidth || 640, 620);
-  const rowH = 34, m = { t: 10, r: 108, b: 26, l: 210 };
+  const rowH = 32, m = { t: 10, r: 108, b: 26, l: 252 };
   const H = m.t + rows.length * rowH + m.b;
   svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
   svg.setAttribute("height", H);
@@ -702,8 +763,9 @@ function drawDumbbell(rows) {
   rows.forEach((r, i) => {
     const cy = m.t + i * rowH + rowH / 2;
     const g = el("g");
+    const full = itemLabel(r);
     const lab = el("text", { class: "tick", x: m.l - 12, y: cy + 4, "text-anchor": "end", fill: "var(--text-secondary)" });
-    lab.textContent = r.name.length > 26 ? r.name.slice(0, 25) + "…" : r.name;
+    lab.textContent = full.length > 36 ? full.slice(0, 35) + "…" : full;
     g.append(lab);
 
     g.append(el("line", { class: "dumbbell-link", x1: x(r.benchmarkCagrPct), x2: x(r.cagrPct), y1: cy, y2: cy }));
@@ -718,7 +780,7 @@ function drawDumbbell(rows) {
 
     const hit = el("rect", { x: 0, y: m.t + i * rowH, width: W, height: rowH, fill: "transparent", style: "cursor:pointer" });
     hit.addEventListener("mousemove", (ev) => {
-      tip.innerHTML = `<h4>${esc(r.brand)} ${esc(r.name)}</h4>
+      tip.innerHTML = `<h4>${esc(full)}</h4>
         <div class="row"><span class="nm">${esc(r.firstYear)}–${esc(r.lastYear)}</span><b>${money(r.firstPrice)} → ${money(r.lastPrice)}</b></div>
         <div class="row"><span class="nm">The object</span><b>${pct(r.cagrPct)}/yr</b></div>
         <div class="row"><span class="nm">${esc(r.benchmarkName)}</span><b>${pct(r.benchmarkCagrPct)}/yr</b></div>
@@ -729,13 +791,11 @@ function drawDumbbell(rows) {
       tip.style.top = Math.max(8, Math.min(ev.clientY - h / 2, innerHeight - h - 8)) + "px";
     });
     hit.addEventListener("mouseleave", () => tip.classList.remove("on"));
-    hit.addEventListener("click", () => { itemState.selected = r.id; renderItems(); });
+    hit.addEventListener("click", () => { itemState.selected = r.id; renderItemDetail(); });
     g.append(hit);
     svg.append(g);
   });
 }
-
-const CONF_LABEL = { high: "sourced", medium: "reported", estimated: "estimated" };
 
 function renderItemTable(rows) {
   const t = $("#itemTable");
@@ -743,7 +803,7 @@ function renderItemTable(rows) {
     const q = itemState.query.trim();
     t.innerHTML = `<tbody><tr><td class="empty">${
       q ? `Nothing matches &ldquo;${esc(q)}&rdquo; in ${itemState.kind === "retail" ? "retail prices" : "resale values"}. Add it below and it stays in the database.`
-        : "No models here yet. Add one below."}</td></tr></tbody>`;
+        : "No models here. Add one below."}</td></tr></tbody>`;
     return;
   }
   const benchHead = itemState.kind === "retail" ? "Inflation" : "S&amp;P 500";
@@ -753,75 +813,90 @@ function renderItemTable(rows) {
     rows.map((r) => `
       <tr class="item-row" data-id="${esc(r.id)}" aria-selected="${itemState.selected === r.id}">
         <td><span class="swatch" style="--c:${ITEM_COLOR[r.kind]}"></span>${esc(r.name)}
-            <div class="ref">${esc(r.ref)}</div></td>
+            <div class="ref">${esc(r.ref || r.categoryName)}</div></td>
         <td class="num">${esc(r.firstYear)}–${esc(r.lastYear)}</td>
         <td class="num">${money(r.firstPrice)}</td>
         <td class="num">${money(r.lastPrice)}</td>
         <td class="num">${signed(r.cagrPct)}</td>
         <td class="num">${pct(r.benchmarkCagrPct)}</td>
         <td class="num">${signed(r.edgePct)}</td>
-        <td><span class="badge ${r.confidence === "high" ? "" : "est"}">${CONF_LABEL[r.confidence] ?? esc(r.confidence)}</span>
+        <td><span class="badge ${confClass(r.confidence)}">${CONF_LABEL[r.confidence] ?? esc(r.confidence)}</span>
             ${r.origin === "user" ? `<span class="badge">added here</span>` : ""}</td>
       </tr>`).join("") + "</tbody>";
   t.querySelectorAll("tr.item-row").forEach((tr) => tr.onclick = () => {
     itemState.selected = itemState.selected === tr.dataset.id ? null : tr.dataset.id;
-    renderItems();
+    renderItemDetail();
   });
 }
 
-function renderItemDetail() {
+async function renderItemDetail() {
   const box = $("#itemDetail");
-  const r = itemState.all.find((i) => i.id === itemState.selected);
+  if (!itemState.selected) { box.innerHTML = ""; return; }
+  const r = await getItemDetail(itemState.selected);
   if (!r) { box.innerHTML = ""; return; }
+  const onChart = state.pickedItems.has(r.id);
   box.innerHTML = `<div class="detail">
       <h3>${esc(r.name)}</h3>
-      <p class="meta">${esc(r.ref)} · ${esc(r.categoryName)} · ${r.kind === "retail" ? "retail price" : "resale value"}
-        · <span class="badge ${r.confidence === "high" ? "" : "est"}">${CONF_LABEL[r.confidence] ?? esc(r.confidence)}</span></p>
+      <p class="meta">${esc(r.ref || "—")} · ${esc(r.categoryName)} · ${r.kind === "retail" ? "retail price" : "resale value"}
+        · <span class="badge ${confClass(r.confidence)}">${CONF_LABEL[r.confidence] ?? esc(r.confidence)}</span></p>
       ${r.blurb ? `<p style="margin:0 0 12px">${esc(r.blurb)}</p>` : ""}
-      ${r.origin === "user" ? `<p style="margin:-6px 0 12px"><button class="delete-link" id="delItem">Remove this model</button></p>` : ""}
+      <p style="margin:0 0 12px">
+        <button class="chip" id="plotItem" type="button"${onChart ? " disabled" : ""}>${onChart ? "On the chart above" : "＋ Plot this on the chart"}</button>
+        ${r.origin === "user" ? `<button class="delete-link" id="delItem" style="margin-left:14px">Remove this model</button>` : ""}</p>
       <div class="chart-scroll"><svg id="itemPath" class="chart"></svg></div>
       <p class="caveat"><b>Source:</b> ${esc(r.source)}${r.caveat ? `<br><b>Caveat:</b> ${esc(r.caveat)}` : ""}</p>
     </div>`;
   drawItemPath(r);
+  const plot = $("#plotItem");
+  if (plot) plot.onclick = async () => {
+    if (state.pickedItems.has(r.id)) return;
+    if (totalPicked() >= MAX_SERIES) { toast("Eight lines is the limit — remove one first"); return; }
+    state.pickedItems.add(r.id);
+    renderPicker(); drawGrowth(); writeUrl(); renderItemDetail();
+    $("#chart").scrollIntoView({ behavior: "smooth", block: "start" });
+  };
   const del = $("#delItem");
   if (del) del.onclick = () => removeItem(r.id, r.name);
 }
 
 function drawItemPath(r) {
   const svg = $("#itemPath");
+  if (!svg || !r.points?.length) return;
   const W = Math.max(svg.clientWidth || 600, 560), H = 240;
-  const m = { t: 16, r: 20, b: 30, l: 72 };
+  const m = { t: 16, r: 20, b: 30, l: 78 };
   svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
   svg.setAttribute("height", H);
   const iw = W - m.l - m.r, ih = H - m.t - m.b;
 
   const ys = r.points.map((p) => p.year), ps = r.points.map((p) => p.price);
   const y0 = Math.min(...ys), y1 = Math.max(...ys);
-  // Prices here span four orders of magnitude across items; a wide range needs a log axis.
   const useLog = Math.max(...ps) / Math.min(...ps) > 40;
   const lo = Math.min(...ps) * 0.9, hi = Math.max(...ps) * 1.08;
   const ty = (v) => (useLog ? Math.log10(v) : v);
   const X = (yr) => m.l + ((yr - y0) / (y1 - y0 || 1)) * iw;
   const Y = (v) => m.t + ih - ((ty(v) - ty(lo)) / (ty(hi) - ty(lo))) * ih;
 
-  const ticks = useLog ? logTicks(lo, hi) : linTicks(lo, hi, 4);
-  for (const v of ticks) {
+  for (const v of (useLog ? logTicks(lo, hi) : linTicks(lo, hi, 4))) {
     svg.append(el("line", { class: "grid-line", x1: m.l, x2: m.l + iw, y1: Y(v), y2: Y(v) }));
     const t = el("text", { class: "tick", x: m.l - 9, y: Y(v) + 4, "text-anchor": "end" });
     t.textContent = compact(v);
     svg.append(t);
   }
   svg.append(el("line", { class: "axis-line", x1: m.l, x2: m.l + iw, y1: m.t + ih, y2: m.t + ih }));
-
   svg.append(el("path", {
     class: "series-line", stroke: ITEM_COLOR[r.kind],
     d: r.points.map((p, i) => `${i ? "L" : "M"}${X(p.year).toFixed(1)},${Y(p.price).toFixed(1)}`).join(""),
   }));
 
   const tip = $("#tip");
+  // A modelled series has a value for every year, so markers would imply anchors it does
+  // not have; only a hand-sourced series has real priced years to mark.
+  const showAnchors = r.confidence !== "modelled";
   for (const p of r.points) {
-    const c = el("circle", { class: "anchor-dot", cx: X(p.year), cy: Y(p.price), r: 5, stroke: ITEM_COLOR[r.kind] });
-    const hit = el("circle", { cx: X(p.year), cy: Y(p.price), r: 13, fill: "transparent" });
+    if (showAnchors) {
+      svg.append(el("circle", { class: "anchor-dot", cx: X(p.year), cy: Y(p.price), r: 5, stroke: ITEM_COLOR[r.kind] }));
+    }
+    const hit = el("circle", { cx: X(p.year), cy: Y(p.price), r: 12, fill: "transparent" });
     hit.addEventListener("mousemove", (ev) => {
       tip.innerHTML = `<h4>${esc(p.year)}</h4><div class="row"><span class="nm">Price</span><b>${money(p.price)}</b></div>`;
       tip.classList.add("on");
@@ -829,7 +904,7 @@ function drawItemPath(r) {
       tip.style.top = Math.max(8, ev.clientY - tip.offsetHeight / 2) + "px";
     });
     hit.addEventListener("mouseleave", () => tip.classList.remove("on"));
-    svg.append(c); svg.append(hit);
+    svg.append(hit);
   }
   for (const yr of [y0, y1]) {
     const t = el("text", { class: "tick", x: X(yr), y: H - 9, "text-anchor": "middle" });
@@ -837,35 +912,33 @@ function drawItemPath(r) {
     svg.append(t);
   }
   const note = el("text", { class: "tick", x: m.l, y: m.t - 4, fill: "var(--muted)" });
-  note.textContent = `${r.points.length} priced years · the line between them is interpolation`;
+  note.textContent = showAnchors
+    ? `${r.points.length} priced years · the line between them is interpolation`
+    : `derived from the ${r.categoryName.toLowerCase()} category index — not a tracked price`;
   svg.append(note);
 }
 
-/* -------------------------------------------------------------------- boot */
-// Last in the file: the items module below declares consts that these calls reach,
-// and a const is not initialised until its declaration is evaluated.
-readUrl();
-buildYearSelects();
-wireShare();
-renderProvenance();
-wireSearch();
-wireAddForm();
-loadItems();
-load();
+/* --------------------------------------------------------- item controls */
+async function wireItemControls() {
+  const prov = await (await fetch("/api/provenance")).json();
+  LUXURY_CATS = prov.filter((a) => a.class === "luxury");
+  $("#catSel").innerHTML = `<option value="">All categories</option>` +
+    LUXURY_CATS.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("");
 
-/* ------------------------------------------------- search & adding models */
-let LUXURY_CATS = [];
-
-function wireSearch() {
-  const box = $("#itemSearch");
-  let t;
-  box.addEventListener("input", () => {
-    clearTimeout(t);
-    t = setTimeout(() => { itemState.query = box.value; itemState.selected = null; renderItems(); }, 120);
-  });
+  const reset = () => { itemState.page = 0; itemState.selected = null; };
+  $("#catSel").onchange = (e) => { itemState.cat = e.target.value; reset(); refreshItems(); };
+  $("#sortSel").onchange = (e) => { itemState.sort = e.target.value; reset(); refreshItems(); };
+  seg("#kindSeg", (v) => { itemState.kind = v; reset(); refreshItems(); });
+  seg("#scopeSeg", (v) => { itemState.scope = v; reset(); refreshItems(); });
+  $("#itemSearch").addEventListener("input", debounce((e) => {
+    itemState.query = e.target.value; reset(); refreshItems();
+  }, 200));
 }
 
+/* ------------------------------------------------- adding your own model */
+let LUXURY_CATS = [];
 let pointSeq = 0;
+
 function pointRow(year = "", price = "") {
   const row = document.createElement("div");
   row.className = "point-row";
@@ -883,13 +956,11 @@ function pointRow(year = "", price = "") {
   return row;
 }
 
-async function wireAddForm() {
+function wireAddForm() {
   const form = $("#addForm"), rows = $("#pointRows"), msg = $("#addMsg");
-
-  // Only luxury categories can parent an item, which is what the server enforces too.
-  const prov = await (await fetch("/api/provenance")).json();
-  LUXURY_CATS = prov.filter((a) => a.class === "luxury");
-  form.category.innerHTML = LUXURY_CATS.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("");
+  const fillCats = () =>
+    form.category.innerHTML = LUXURY_CATS.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("");
+  fillCats();
 
   for (let i = 0; i < 3; i++) rows.append(pointRow());
   $("#addPoint").onclick = () => rows.append(pointRow());
@@ -927,15 +998,22 @@ async function wireAddForm() {
       form.reset();
       rows.innerHTML = "";
       for (let i = 0; i < 3; i++) rows.append(pointRow());
-      form.category.innerHTML = LUXURY_CATS.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("");
+      fillCats();
 
-      itemState.all = await (await fetch("/api/items")).json();
+      // Move the browser to the thing that was just saved: a hand-entered model is tracked,
+      // so the tracked-only view is where it will be.
       itemState.kind = body.kind;
       for (const b of $("#kindSeg").children) b.setAttribute("aria-pressed", String(b.dataset.v === body.kind));
+      itemState.scope = "tracked";
+      for (const b of $("#scopeSeg").children) b.setAttribute("aria-pressed", String(b.dataset.v === "tracked"));
       itemState.cat = ""; $("#catSel").value = "";
       itemState.query = ""; $("#itemSearch").value = "";
+      itemState.page = 0;
       itemState.selected = out.id;
-      renderItems();
+      objCache.delete(out.id);
+      await fetchSummary();
+      await refreshItems();
+      renderHero();
       $("#itemDetail").scrollIntoView({ behavior: "smooth", block: "center" });
     } catch {
       msg.className = "err"; msg.textContent = "Could not reach the server.";
@@ -950,11 +1028,12 @@ async function removeItem(id, name) {
   const res = await fetch(`/api/items/${encodeURIComponent(id)}`, { method: "DELETE" });
   if (!res.ok) return;
   itemState.selected = null;
-  itemState.all = await (await fetch("/api/items")).json();
+  objCache.delete(id);
   state.pickedItems.delete(id);
   itemSlot.delete(id);
-  renderItems();
-  if (state.data) { renderPicker(); drawGrowth(); }
+  await fetchSummary();
+  await refreshItems();
+  if (state.data) { renderHero(); renderPicker(); drawGrowth(); }
 }
 
 /* ------------------------------------------------------- shareable state */
@@ -1028,3 +1107,41 @@ function wireShare() {
     }
   };
 }
+
+function renderAll() {
+  writeUrl();
+  renderHero(); renderPicker(); drawGrowth(); drawBars(); renderTable();
+  $("#growthHint").textContent =
+    `${state.real ? "Inflation-adjusted" : "Nominal"} value of ${money(state.amount)} invested at the start of ${state.data.from}. ` +
+    `Solid lines are traditional assets, dashed are luxury categories, dotted are specific objects. ` +
+    `Up to ${MAX_SERIES} lines at once.`;
+}
+let t;
+addEventListener("resize", () => {
+  clearTimeout(t);
+  t = setTimeout(() => { drawGrowth(); drawBars(); if (itemState.all.length) renderItems(); }, 120);
+});
+
+/* -------------------------------------------------------------------- boot */
+// Last in the file: the modules above declare consts that these calls reach, and a const
+// is not initialised until its declaration is evaluated.
+async function boot() {
+  readUrl();
+  buildYearSelects();
+  wireShare();
+  wireObjectSearch();
+  renderProvenance();
+  await wireItemControls();
+  wireAddForm();
+
+  // Objects named in a shared link have to be fetched before the chart can draw them.
+  await Promise.all([...state.pickedItems].map(async (id) => {
+    const it = await getItemDetail(id);
+    if (!it) { state.pickedItems.delete(id); itemSlot.delete(id); }
+  }));
+
+  await Promise.all([fetchSummary(), load()]);
+  renderHero();
+  await refreshItems();
+}
+boot();

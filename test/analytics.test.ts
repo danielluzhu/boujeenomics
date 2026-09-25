@@ -117,14 +117,20 @@ describe("data integrity", () => {
     const rows = db.query<{ id: string; n: number }, []>(
       "SELECT asset_id id, COUNT(*) n FROM returns GROUP BY asset_id",
     ).all();
-    expect(rows.length).toBe(13); // 12 assets + CPI
+    // Derived, not hardcoded: adding a category should not break this test.
+    const assetCount = db.query<{ n: number }, []>("SELECT COUNT(*) n FROM assets").get()!.n;
+    expect(rows.length).toBe(assetCount);
+    expect(assetCount).toBeGreaterThan(12);
     for (const r of rows) expect(r.n).toBe(20);
   });
 
   test("CPI is excluded from the asset list but drives the real adjustment", () => {
     const a = analyse(db, { from: 2005, to: 2024, real: false, amount: 10000 });
     expect(a.assets.some((x) => x.id === "cpi")).toBe(false);
-    expect(a.assets.length).toBe(12);
+    const nonBenchmark = db.query<{ n: number }, []>(
+      "SELECT COUNT(*) n FROM assets WHERE class <> 'benchmark'",
+    ).get()!.n;
+    expect(a.assets.length).toBe(nonBenchmark);
     expect(a.cpi.cagrPct).toBeGreaterThan(1);
   });
 

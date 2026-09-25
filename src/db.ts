@@ -1,10 +1,11 @@
 import { Database } from "bun:sqlite";
 import raw from "../data/assets.json";
 import rawItems from "../data/items.json";
+import { seedCatalogue } from "./catalogue";
 
 export const DB_PATH = process.env.BOUJEE_DB ?? "boujee.db";
 
-export type Confidence = "high" | "medium" | "estimated";
+export type Confidence = "high" | "medium" | "estimated" | "modelled";
 export type ItemKind = "retail" | "resale";
 
 export interface AssetRow {
@@ -55,7 +56,7 @@ export function seed(path = DB_PATH): Database {
       kind        TEXT NOT NULL CHECK (kind IN ('retail','resale')),
       blurb       TEXT NOT NULL DEFAULT '',
       source      TEXT NOT NULL DEFAULT '',
-      confidence  TEXT NOT NULL CHECK (confidence IN ('high','medium','estimated')),
+      confidence  TEXT NOT NULL CHECK (confidence IN ('high','medium','estimated','modelled')),
       caveat      TEXT NOT NULL DEFAULT '',
       origin      TEXT NOT NULL DEFAULT 'seed' CHECK (origin IN ('seed','user')),
       created_at  TEXT,
@@ -106,6 +107,11 @@ export function seed(path = DB_PATH): Database {
       for (const [year, price] of Object.entries(it.points)) insPrice.run(it.id, Number(year), price as number);
     }
   })();
+
+  // The generated catalogue goes in after the curated items, so a hand-sourced entry always
+  // wins an id collision with a modelled one.
+  const n = seedCatalogue(db, raw.meta.lastYear);
+  console.log(`  catalogue: ${n} modelled items`);
 
   return db;
 }
