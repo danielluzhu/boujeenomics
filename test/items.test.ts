@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
 import { unlinkSync } from "node:fs";
-import { analyseItems } from "../src/analytics";
+import { analyseItems, interpolateAnnual } from "../src/analytics";
 import { seed } from "../src/db";
 import { ValidationError, deleteItem, insertItem, validate } from "../src/items-write";
 
@@ -132,5 +132,46 @@ describe("seed items", () => {
     const narrow = analyseItems(db, { from: 2005, to: 2006 });
     expect(narrow.every((i) => i.points.length >= 2)).toBe(true);
     expect(narrow.length).toBeLessThan(analyseItems(db).length);
+  });
+});
+
+describe("annual interpolation", () => {
+  test("keeps every anchor exactly and fills only the gaps", () => {
+    const out = interpolateAnnual([{ year: 2010, price: 100 }, { year: 2014, price: 200 }]);
+    expect(out.map((p) => p.year)).toEqual([2010, 2011, 2012, 2013, 2014]);
+    expect(out[0].price).toBe(100);
+    expect(out.at(-1)!.price).toBe(200);
+  });
+
+  test("interpolates geometrically, so each filled year compounds at one constant rate", () => {
+    const out = interpolateAnnual([{ year: 2010, price: 100 }, { year: 2014, price: 1600 }]);
+    // 100 -> 1600 over four years is exactly x2 a year.
+    expect(out.map((p) => Math.round(p.price))).toEqual([100, 200, 400, 800, 1600]);
+  });
+
+  test("a straight line in price terms would be wrong, and is not what this produces", () => {
+    const out = interpolateAnnual([{ year: 2010, price: 100 }, { year: 2012, price: 400 }]);
+    expect(out[1].price).toBeCloseTo(200, 6);  // geometric midpoint
+    expect(out[1].price).not.toBeCloseTo(250, 1); // arithmetic midpoint
+  });
+
+  test("handles consecutive anchors with no gap to fill", () => {
+    const out = interpolateAnnual([{ year: 2010, price: 5 }, { year: 2011, price: 6 }, { year: 2012, price: 7 }]);
+    expect(out.map((p) => p.price)).toEqual([5, 6, 7]);
+  });
+
+  test("a falling stretch interpolates downward without overshooting", () => {
+    const out = interpolateAnnual([{ year: 2020, price: 400 }, { year: 2022, price: 100 }]);
+    expect(out[1].price).toBeCloseTo(200, 6);
+    expect(Math.min(...out.map((p) => p.price))).toBe(100);
+  });
+
+  test("every shipped item yields one price for every year it covers", () => {
+    for (const i of analyseItems(db)) {
+      expect(i.annual.length).toBe(i.lastYear - i.firstYear + 1);
+      expect(i.annual[0].price).toBe(i.firstPrice);
+      expect(i.annual.at(-1)!.price).toBeCloseTo(i.lastPrice, 6);
+      expect(i.annual.every((p) => p.price > 0)).toBe(true);
+    }
   });
 });

@@ -5,6 +5,8 @@ with the boring stuff — the S&P 500, US housing, gold and cash — over any wi
 
 ![Boujeenomics](docs/screenshot.png)
 
+![Objects plotted alongside categories](docs/growth.png)
+
 ![Named models against their benchmarks](docs/items.png)
 
 ## Running it
@@ -12,14 +14,15 @@ with the boring stuff — the S&P 500, US housing, gold and cash — over any wi
 ```bash
 bun run seed     # build boujee.db from data/assets.json
 bun start        # http://localhost:4321
-bun test         # 17 tests over the return maths
+bun test         # 41 tests
 ```
 
 `bun run dev` watches and reloads. Set `PORT` to move it off 4321.
 
 ## What it shows
 
-- **Growth of $10,000** across up to 8 assets at once, linear or log, nominal or inflation-adjusted.
+- **Growth of $10,000** across up to 8 lines at once — categories *and* individual objects on the
+  same axis — linear or log, nominal or inflation-adjusted.
 - **Annualised return** for all 12 categories, traditional vs luxury.
 - **The actual objects** — 17 named models (Daytona, Nautilus, Birkin, Chanel Flap, F40, 250 GTO,
   Countach, Cartier Love and more), each against its own benchmark, with its real price path.
@@ -63,6 +66,26 @@ carries a `confidence` field and the app labels them `estimated` on the provenan
 
 If you have real index data, drop it into `assets.json`, flip `confidence` to `high`, and the
 estimate labels disappear on their own.
+
+## Putting an object on the growth chart
+
+Categories and specific objects share one chart and one eight-line budget. Three line styles keep
+them apart: **solid** for traditional assets, **dashed** for luxury categories, **dotted** for a
+named object.
+
+Colour is allocated, never generated. Objects draw from the same eight validated hues; a hue is held
+while the object is on the chart and released when it comes off, so removing one line never repaints
+the others. Because objects are dotted, sharing a hue with a category is unambiguous.
+
+An object whose record starts after the window does — a Daytona 116500LN has no price before 2016 —
+begins where its data begins, with a ring marking the first point and a note naming the year. It
+shows the same amount invested *then*, not at the window's start, which is not the same comparison;
+the dumbbell chart further down is the rigorous version, since it benchmarks every object over its
+own span.
+
+Years between anchors are filled **geometrically**, so a stretch between two anchors compounds at
+one constant rate and agrees with the CAGR reported for it. A straight line in price terms would
+imply a changing growth rate and disagree with every other number on the page.
 
 ## Named models
 
@@ -122,7 +145,7 @@ src/analytics.ts    index building, CAGR, real adjustment, drawdown, volatility,
 src/items-write.ts  validation and persistence for user-submitted models
 src/server.ts       Bun.serve — the API and static files
 public/             the frontend; charts are hand-rolled SVG, no chart library
-test/               35 tests over the return maths and the write path
+test/               41 tests over the return maths, the write path and interpolation
 ```
 
 ### API

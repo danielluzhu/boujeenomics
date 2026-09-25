@@ -21,6 +21,7 @@ const SVG = "http://www.w3.org/2000/svg";
 const state = {
   from: 2005, to: 2024, real: false, amount: 10000, scale: "lin",
   picked: new Set(["sp500", "gold", "housing", "cash", "whisky", "watches"]),
+  pickedItems: new Set(),
   sort: { key: "cagrPct", dir: -1 },
   data: null,
 };
@@ -87,6 +88,8 @@ function seg(sel, fn) {
   };
 }
 
+function totalPicked() { return state.picked.size + state.pickedItems.size; }
+
 function renderPicker() {
   const box = $("#picker");
   box.innerHTML = "";
@@ -97,15 +100,123 @@ function renderPicker() {
     b.type = "button";
     b.style.setProperty("--c", STYLE[a.id].c);
     b.setAttribute("aria-pressed", String(on));
-    b.disabled = !on && state.picked.size >= MAX_SERIES;
+    b.disabled = !on && totalPicked() >= MAX_SERIES;
     b.innerHTML = `<span class="dot"></span>${a.name}`;
     b.onclick = () => {
-      if (on) { if (state.picked.size > 1) state.picked.delete(a.id); }
-      else if (state.picked.size < MAX_SERIES) state.picked.add(a.id);
+      if (on) { if (totalPicked() > 1) state.picked.delete(a.id); }
+      else if (totalPicked() < MAX_SERIES) state.picked.add(a.id);
       renderPicker(); drawGrowth();
     };
     box.append(b);
   }
+  renderObjectPicker();
+}
+
+/* Item hues are allocated from the same eight slots, not generated. A slot is held for as
+   long as the object is on the chart and released when it comes off, so removing one object
+   never repaints the others. Objects are drawn dotted, so sharing a hue with a category
+   line (solid or dashed) is never ambiguous. */
+const itemSlot = new Map();
+function slotFor(id) {
+  if (itemSlot.has(id)) return itemSlot.get(id);
+  const taken = new Set(itemSlot.values());
+  for (let i = 1; i <= 8; i++) if (!taken.has(i)) { itemSlot.set(id, i); return i; }
+  return 1;
+}
+const itemColor = (id) => `var(--s${slotFor(id)})`;
+
+/** Qualify a model name with its kind only when the catalogue holds more than one of that name. */
+function itemLabel(it) {
+  const dupes = itemState.all.filter((x) => x.name === it.name).length > 1;
+  return dupes ? `${it.name} (${it.kind})` : it.name;
+}
+
+/** Years of this item that fall inside the current chart window. */
+function itemOverlap(it) {
+  const ys = state.data.years;
+  const from = Math.max(ys[0], it.firstYear);
+  const to = Math.min(ys[ys.length - 1], it.lastYear);
+  return { from, to, years: to - from };
+}
+
+function renderObjectPicker() {
+  const sel = $("#objAdd"), box = $("#objPicked");
+  if (!itemState.all.length) return;
+
+  const plottable = itemState.all
+    .filter((i) => itemOverlap(i).years >= 1)
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const full = totalPicked() >= MAX_SERIES;
+  sel.disabled = full;
+  sel.innerHTML = `<option value="">${full ? `Eight lines is the limit — remove one first` : `Add an object…`}</option>` +
+    plottable.filter((i) => !state.pickedItems.has(i.id))
+      .map((i) => `<option value="${esc(i.id)}">${esc(itemLabel(i))}${i.ref ? " — " + esc(i.ref) : ""}</option>`)
+      .join("");
+  sel.onchange = () => {
+    if (sel.value && totalPicked() < MAX_SERIES) state.pickedItems.add(sel.value);
+    sel.value = "";
+    renderPicker(); drawGrowth();
+  };
+
+  box.innerHTML = "";
+  for (const id of state.pickedItems) {
+    const it = itemState.all.find((x) => x.id === id);
+    if (!it) { state.pickedItems.delete(id); continue; }
+    const b = document.createElement("button");
+    b.className = "chip obj";
+    b.type = "button";
+    b.style.setProperty("--c", itemColor(id));
+    b.setAttribute("aria-pressed", "true");
+    b.title = `Remove ${itemLabel(it)} from the chart`;
+    b.innerHTML = `<span class="dot"></span>${esc(itemLabel(it))}<span class="x">×</span>`;
+    b.onclick = () => {
+      state.pickedItems.delete(id);
+      itemSlot.delete(id);          // release the hue for the next object
+      renderPicker(); drawGrowth();
+    };
+    box.append(b);
+  }
+}
+
+/**
+ * One drawable series per selected category or object, all aligned to the window's year
+ * axis. An object that starts after the window does gets leading nulls rather than a
+ * fabricated earlier value.
+ */
+function buildSeries() {
+  const d = state.data;
+  const out = d.assets.filter((a) => state.picked.has(a.id)).map((a) => ({
+    id: a.id, name: a.name, color: STYLE[a.id].c, dash: STYLE[a.id].dash,
+    values: a.values, startIdx: 0, startYear: d.from, isItem: false,
+  }));
+
+  for (const id of state.pickedItems) {
+    const it = itemState.all.find((x) => x.id === id);
+    if (!it) continue;
+    const { from, years: span } = itemOverlap(it);
+    if (span < 1) continue;
+
+    const priceAt = new Map(it.annual.map((p) => [p.year, p.price]));
+    const base = priceAt.get(from);
+    if (!base) continue;
+    const startIdx = d.years.indexOf(from);
+    const cpiBase = d.cpiIndex[startIdx];
+
+    const values = d.years.map((yr, i) => {
+      const px = priceAt.get(yr);
+      if (px === undefined) return null;
+      const nominal = (px / base) * d.amount;
+      // Deflate by the same CPI path the category series use, rebased to this line's start.
+      return d.real ? nominal / (d.cpiIndex[i] / cpiBase) : nominal;
+    });
+
+    out.push({
+      id, name: itemLabel(it), color: itemColor(id), dash: "2 4",
+      values, startIdx, startYear: from, isItem: true, kind: it.kind,
+    });
+  }
+  return out;
 }
 
 /* ------------------------------------------------------- growth line chart */
@@ -113,8 +224,9 @@ function drawGrowth() {
   const svg = $("#growth");
   svg.innerHTML = "";
   const d = state.data;
-  const series = d.assets.filter((a) => state.picked.has(a.id));
+  const series = buildSeries();
   if (!series.length) return;
+  const vals = (sr) => sr.values.filter((v) => v !== null);
 
   const W = Math.max(svg.clientWidth || 640, 560), H = 360;
   const m = { t: 14, r: 88, b: 30, l: 60 };
@@ -123,8 +235,8 @@ function drawGrowth() {
 
   const iw = W - m.l - m.r, ih = H - m.t - m.b;
   const years = d.years;
-  const lo = Math.min(...series.flatMap((s) => s.values));
-  const hi = Math.max(...series.flatMap((s) => s.values));
+  const lo = Math.min(...series.flatMap(vals));
+  const hi = Math.max(...series.flatMap(vals));
   const logMode = state.scale === "log";
 
   const yMin = logMode ? Math.max(lo * 0.85, 1) : Math.min(lo * 0.9, state.amount * 0.9);
@@ -159,23 +271,38 @@ function drawGrowth() {
 
   // lines
   for (const s of series) {
-    const dstr = s.values.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
+    let started = false;
+    const dstr = s.values.map((v, i) => {
+      if (v === null) return "";
+      const cmd = started ? "L" : "M";
+      started = true;
+      return `${cmd}${x(i).toFixed(1)},${y(v).toFixed(1)}`;
+    }).join("");
+    if (!dstr) continue;
     svg.append(el("path", {
-      class: "series-line", d: dstr, stroke: STYLE[s.id].c,
-      ...(STYLE[s.id].dash ? { "stroke-dasharray": STYLE[s.id].dash } : {}),
+      class: "series-line", d: dstr, stroke: s.color,
+      ...(s.dash ? { "stroke-dasharray": s.dash } : {}),
     }));
+    // Mark where a late-starting line begins, so its shorter run is visible rather than implied.
+    if (s.startIdx > 0) {
+      svg.append(el("circle", {
+        cx: x(s.startIdx), cy: y(s.values[s.startIdx]), r: 4,
+        fill: "var(--surface-1)", stroke: s.color, "stroke-width": 2,
+      }));
+    }
   }
 
   // Direct end-labels when the field is small enough to stay legible; the legend and the
   // table below carry identity in every case.
   if (series.length <= 4) {
+    const lastOf = (sr) => vals(sr).at(-1) ?? 0;
     const placed = [];
-    for (const s of [...series].sort((a, b) => b.values.at(-1) - a.values.at(-1))) {
-      let yy = y(s.values.at(-1)) + 4;
+    for (const s of [...series].sort((a, b) => lastOf(b) - lastOf(a))) {
+      let yy = y(lastOf(s)) + 4;
       while (placed.some((p) => Math.abs(p - yy) < 14)) yy += 14;
       placed.push(yy);
-      const t = el("text", { class: "end-label", x: m.l + iw + 8, y: yy, fill: STYLE[s.id].c });
-      t.textContent = s.name;
+      const t = el("text", { class: "end-label", x: m.l + iw + 8, y: yy, fill: s.color });
+      t.textContent = s.name.length > 16 ? s.name.slice(0, 15) + "…" : s.name;
       svg.append(t);
     }
   }
@@ -212,7 +339,7 @@ function attachCrosshair(svg, ctx) {
   const line = el("line", { class: "crosshair", y1: m.t, y2: m.t + ih, opacity: 0 });
   svg.append(line);
   const dots = series.map((s) => {
-    const c = el("circle", { r: 4.5, fill: STYLE[s.id].c, stroke: "var(--surface-1)", "stroke-width": 2, opacity: 0 });
+    const c = el("circle", { r: 4.5, fill: s.color, stroke: "var(--surface-1)", "stroke-width": 2, opacity: 0 });
     svg.append(c);
     return c;
   });
@@ -226,10 +353,16 @@ function attachCrosshair(svg, ctx) {
     const i = Math.max(0, Math.min(years.length - 1, Math.round(((rel - m.l) / iw) * (years.length - 1))));
     line.setAttribute("x1", x(i)); line.setAttribute("x2", x(i)); line.setAttribute("opacity", 1);
     series.forEach((s, k) => {
-      dots[k].setAttribute("cx", x(i)); dots[k].setAttribute("cy", y(s.values[i])); dots[k].setAttribute("opacity", 1);
+      const v = s.values[i];
+      if (v === null) { dots[k].setAttribute("opacity", 0); return; }
+      dots[k].setAttribute("cx", x(i)); dots[k].setAttribute("cy", y(v)); dots[k].setAttribute("opacity", 1);
     });
-    const rows = [...series].sort((a, b) => b.values[i] - a.values[i]).map((s) =>
-      `<div class="row"><span class="nm" style="--c:${STYLE[s.id].c}"><span class="sw"></span>${s.name}</span><b>${money(s.values[i])}</b></div>`).join("");
+    const rows = [...series]
+      .filter((s) => s.values[i] !== null)
+      .sort((a, b) => b.values[i] - a.values[i])
+      .map((s) => `<div class="row"><span class="nm" style="--c:${s.color}"><span class="sw"></span>${esc(s.name)}${
+        s.startIdx > 0 ? ` <span style="color:var(--muted)">from ${s.startYear}</span>` : ""
+      }</span><b>${money(s.values[i])}</b></div>`).join("");
     tip.innerHTML = `<h4>${years[i]}${years[i] >= state.data.provisionalFrom ? " · provisional" : ""}</h4>${rows}`;
     tip.classList.add("on");
     const w = tip.offsetWidth, h = tip.offsetHeight;
@@ -244,8 +377,27 @@ function attachCrosshair(svg, ctx) {
 }
 
 function renderLegend(series) {
-  $("#growthLegend").innerHTML = series.map((s) =>
-    `<span style="--c:${STYLE[s.id].c}"><i style="${STYLE[s.id].dash ? "border-top-style:dashed" : ""}"></i>${s.name}</span>`).join("");
+  $("#growthLegend").innerHTML = series.map((s) => {
+    const style = s.isItem ? "border-top-style:dotted;border-top-width:3px" : s.dash ? "border-top-style:dashed" : "";
+    return `<span style="--c:${s.color}"><i style="${style}"></i>${esc(s.name)}${
+      s.startIdx > 0 ? ` <span style="color:var(--muted)">(from ${s.startYear})</span>` : ""}</span>`;
+  }).join("");
+  const late = series.filter((s) => s.startIdx > 0);
+  const note = $("#shortNote");
+  if (note) note.remove();
+  if (late.length) {
+    const named = late.map((s) => `${s.name} from ${s.startYear}`);
+    const list = named.length === 1 ? named[0]
+      : named.slice(0, -1).join(", ") + " and " + named[named.length - 1];
+    const p = document.createElement("p");
+    p.id = "shortNote";
+    p.className = "short-note";
+    p.textContent = `${list} — ${late.length > 1 ? "those lines" : "that line"} ` +
+      `start${late.length > 1 ? "" : "s"} where the record does, so ${late.length > 1 ? "they show" : "it shows"} ` +
+      `${money(state.amount)} invested then, not in ${state.data.from}. ` +
+      `Compare ${late.length > 1 ? "them" : "it"} against the others over the shared years only.`;
+    $("#growthLegend").after(p);
+  }
 }
 
 /* --------------------------------------------------------- CAGR bar chart */
@@ -406,7 +558,8 @@ function renderAll() {
   renderHero(); renderPicker(); drawGrowth(); drawBars(); renderTable();
   $("#growthHint").textContent =
     `${state.real ? "Inflation-adjusted" : "Nominal"} value of ${money(state.amount)} invested at the start of ${state.data.from}. ` +
-    `Solid lines are traditional assets, dashed are luxury. Pick up to ${MAX_SERIES}.`;
+    `Solid lines are traditional assets, dashed are luxury categories, dotted are specific objects. ` +
+    `Up to ${MAX_SERIES} lines at once.`;
 }
 let t;
 addEventListener("resize", () => {
@@ -431,6 +584,7 @@ async function loadItems() {
   sel.onchange = () => { itemState.cat = sel.value; renderItems(); };
   seg("#kindSeg", (v) => { itemState.kind = v; itemState.selected = null; renderItems(); });
   renderItems();
+  if (state.data) renderPicker();   // the analysis may have landed first, or not
 }
 
 function visibleItems() {
@@ -732,5 +886,8 @@ async function removeItem(id, name) {
   if (!res.ok) return;
   itemState.selected = null;
   itemState.all = await (await fetch("/api/items")).json();
+  state.pickedItems.delete(id);
+  itemSlot.delete(id);
   renderItems();
+  if (state.data) { renderPicker(); drawGrowth(); }
 }

@@ -196,3 +196,14 @@ fieldset.points legend { font-size: 11px; text-transform: uppercase; letter-spac
 #addMsg.ok { color: var(--good); }
 .delete-link { background: none; border: 0; color: var(--muted); font: inherit; font-size: 12px;
   cursor: pointer; text-decoration: underline; padding: 0; }
+
+/* ---- object picker on the growth chart ---- */
+.objrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px;
+  padding-top: 12px; border-top: 1px solid var(--border); }
+.objrow > label { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+.objrow .picker { margin-top: 0; }
+.chip .x { color: var(--muted); font-weight: 600; margin-left: 2px; }
+.chip.obj .dot { border-radius: 50%; width: 10px; height: 10px;
+  background: transparent; box-shadow: inset 0 0 0 2px var(--c); }
+.legend i.dot3 { border-top-style: dotted; border-top-width: 3px; }
+.short-note { color: var(--muted); font-size: 12px; margin: 8px 0 0; }

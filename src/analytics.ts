@@ -33,6 +33,8 @@ export interface Analysis {
   amount: number;
   provisionalFrom: number;
   assets: Metrics[];
+  /** CPI level rebased to 100 at the window's first year, one entry per year. */
+  cpiIndex: number[];
   cpi: { cumulativePct: number; cagrPct: number };
 }
 
@@ -130,6 +132,7 @@ export function analyse(
       db.query<{ value: string }, []>("SELECT value FROM meta WHERE key='provisionalFrom'").get()?.value ?? 9999,
     ),
     assets,
+    cpiIndex: deflator.map((d) => d * 100),
     cpi: {
       cumulativePct: (cpiMult - 1) * 100,
       cagrPct: cpiReturns.length ? (Math.pow(cpiMult, 1 / cpiReturns.length) - 1) * 100 : 0,
@@ -153,6 +156,8 @@ export interface ItemMetrics {
   caveat: string;
   /** Anchor years actually priced, ascending. */
   points: { year: number; price: number }[];
+  /** One price per year from firstYear to lastYear, geometrically interpolated between anchors. */
+  annual: { year: number; price: number }[];
   firstYear: number;
   lastYear: number;
   firstPrice: number;
@@ -169,6 +174,25 @@ export interface ItemMetrics {
   benchmarkValue: number;
   /** 'seed' for the shipped catalogue, 'user' for models added through the app. */
   origin: string;
+}
+
+/**
+ * Fill the years between anchors. Interpolation is geometric rather than linear, so a
+ * stretch between two anchors compounds at a constant rate and agrees with the CAGR
+ * reported for that stretch; a straight line in price terms would not.
+ */
+export function interpolateAnnual(
+  points: { year: number; price: number }[],
+): { year: number; price: number }[] {
+  const out: { year: number; price: number }[] = [];
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i], b = points[i + 1];
+    const span = b.year - a.year;
+    const rate = Math.pow(b.price / a.price, 1 / span);
+    for (let k = 0; k < span; k++) out.push({ year: a.year + k, price: a.price * Math.pow(rate, k) });
+  }
+  out.push(points[points.length - 1]);
+  return out;
 }
 
 /** Compound annual growth of a stored annual-return series between two years. */
@@ -218,7 +242,8 @@ export function analyseItems(
       category: r.category_id, categoryName: r.categoryName, kind: r.kind,
       blurb: r.blurb, source: r.source, confidence: r.confidence, caveat: r.caveat,
       origin: r.origin,
-      points, firstYear, lastYear, firstPrice, lastPrice, multiple, cagrPct,
+      points, annual: interpolateAnnual(points),
+      firstYear, lastYear, firstPrice, lastPrice, multiple, cagrPct,
       benchmarkId,
       benchmarkName: benchmarkId === "cpi" ? "US inflation" : "S&P 500",
       benchmarkCagrPct,
