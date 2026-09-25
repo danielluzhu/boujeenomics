@@ -5,6 +5,8 @@ with the boring stuff — the S&P 500, US housing, gold and cash — over any wi
 
 ![Boujeenomics](docs/screenshot.png)
 
+![Named models against their benchmarks](docs/items.png)
+
 ## Running it
 
 ```bash
@@ -18,10 +20,25 @@ bun test         # 17 tests over the return maths
 ## What it shows
 
 - **Growth of $10,000** across up to 8 assets at once, linear or log, nominal or inflation-adjusted.
-- **Annualised return** for all 12 assets, traditional vs luxury.
+- **Annualised return** for all 12 categories, traditional vs luxury.
+- **The actual objects** — 17 named models (Daytona, Nautilus, Birkin, Chanel Flap, F40, 250 GTO,
+  Countach, Cartier Love and more), each against its own benchmark, with its real price path.
+- **Search, and add your own models**, saved to the database for everyone.
 - **A table** with total return, ending value, return versus cash, volatility, max drawdown, and
   each asset's best and worst year.
 - **Provenance** for every series, because half of them are estimates and you should know which half.
+
+## Two findings worth the whole project
+
+**Not one resale object beat the S&P 500 over its own span.** Not the Daytona, not the Nautilus,
+not the F40. The closest is the F40 at 0.7 percentage points a year behind; the Submariner is
+11 points behind. Physical luxury spent fifteen years losing to an index fund, and that is before
+auction premiums, insurance and storage.
+
+**Every retail price beat inflation.** The Chanel Classic Flap ran at 10.2% a year against CPI's
+2.5% — it roughly septupled while general prices rose 60%. But a retail price going up is what the
+object *costs* you, not what you earn. The two halves of the page ask different questions, which is
+why they carry different benchmarks.
 
 The window matters more than anything else on the page. Rare whisky is the best-performing asset in
 the set from 2005 and a middling one from 2015 — the 2010s boom and the 2023–24 collapse are both
@@ -47,6 +64,44 @@ carries a `confidence` field and the app labels them `estimated` on the provenan
 If you have real index data, drop it into `assets.json`, flip `confidence` to `high`, and the
 estimate labels disappear on their own.
 
+## Named models
+
+`data/items.json` holds specific objects rather than category averages. Each is priced at **anchor
+years** — a year there is an actual view on — rather than annually. The app draws a marker on every
+anchor and interpolates between them, and says so on the chart, so interpolation is never mistaken
+for data. CAGR is computed endpoint-to-endpoint from anchors only.
+
+Each model is one of two kinds, and they are benchmarked differently because they answer different
+questions:
+
+| Kind | What it is | Benchmarked against |
+|---|---|---|
+| `resale` | Secondary-market or auction value — what you could sell it for | S&P 500, over that item's own years |
+| `retail` | Boutique list price — what the shop charges | US CPI, over that item's own years |
+
+Benchmarks run over each item's **own span**, never the global window, so a 2016-2025 watch is not
+compared against a 2005-2025 stretch of the index.
+
+Confidence is `sourced` for specific verifiable auction results (the 250 GTO's are public sales),
+`reported` for published list prices and widely-reported market values, and `estimated` where the
+path between endpoints is inferred.
+
+## Adding your own
+
+Search filters the catalogue by name, brand, reference and category. If nothing matches, the form
+below saves a new model straight into SQLite, where it stays for everyone.
+
+There is **no public price API for luxury goods**, so nothing auto-fills — prices are typed in, and
+the form asks for a source and a caveat. A submission can claim `estimated` or `reported`;
+`sourced` is reserved for the shipped catalogue and rejected by the server.
+
+Reseeding does not wipe them. `bun run seed` replaces only the rows `data/` owns (`origin='seed'`);
+anything added through the app survives. `DELETE /api/items/:id` removes a user model and refuses to
+touch the shipped catalogue.
+
+> **These endpoints are unauthenticated.** Anyone who can reach the port can add or remove a user
+> model. Put it behind auth before exposing it publicly.
+
 ### What the returns leave out
 
 Price appreciation only. No transaction costs, insurance, storage, authentication, restoration or
@@ -60,15 +115,22 @@ This is an educational tool, not investment advice.
 ## Layout
 
 ```
-data/assets.json    every number, with source and confidence per series
-src/db.ts           schema + seed (bun:sqlite)
-src/analytics.ts    index building, CAGR, real adjustment, drawdown, volatility
-src/server.ts       Bun.serve — /api/analysis, /api/provenance, static files
+data/assets.json    the 12 category series, with source and confidence for each
+data/items.json     17 named models, priced at anchor years
+src/db.ts           schema, seed and migration (bun:sqlite)
+src/analytics.ts    index building, CAGR, real adjustment, drawdown, volatility, item benchmarks
+src/items-write.ts  validation and persistence for user-submitted models
+src/server.ts       Bun.serve — the API and static files
 public/             the frontend; charts are hand-rolled SVG, no chart library
-test/               bun test over the return maths
+test/               35 tests over the return maths and the write path
 ```
 
 ### API
 
-`GET /api/analysis?from=2005&to=2024&real=0&amount=10000` returns per-asset index and dollar paths
-plus every summary metric. `GET /api/provenance` returns the source and confidence of each series.
+| | |
+|---|---|
+| `GET /api/analysis?from=&to=&real=&amount=` | per-asset index and dollar paths plus every summary metric |
+| `GET /api/items?from=&to=` | named models with CAGR, benchmark and price anchors |
+| `POST /api/items` | save a new model (JSON body; see the form for the shape) |
+| `DELETE /api/items/:id` | remove a user-added model |
+| `GET /api/provenance` | source and confidence for each category series |

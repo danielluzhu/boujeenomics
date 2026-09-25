@@ -646,12 +646,16 @@ function wireSearch() {
   });
 }
 
+let pointSeq = 0;
 function pointRow(year = "", price = "") {
   const row = document.createElement("div");
   row.className = "point-row";
+  // Unique names, or the browser autofills every row with the same remembered value —
+  // which then trips the duplicate-year check on submit.
+  const n = ++pointSeq;
   row.innerHTML =
-    `<label>Year<input name="year" type="number" min="2005" max="2025" step="1" value="${esc(year)}" placeholder="2018"></label>
-     <label class="price">Price (USD)<input name="price" type="number" min="0" step="any" value="${esc(price)}" placeholder="12000"></label>
+    `<label>Year<input name="year-${n}" data-f="year" autocomplete="off" type="number" min="2005" max="2025" step="1" value="${esc(year)}" placeholder="2018"></label>
+     <label class="price">Price (USD)<input name="price-${n}" data-f="price" autocomplete="off" type="number" min="0" step="any" value="${esc(price)}" placeholder="12000"></label>
      <button type="button" title="Remove this year">Remove</button>`;
   row.querySelector("button").onclick = () => {
     const rows = $("#pointRows");
@@ -678,8 +682,8 @@ async function wireAddForm() {
 
     const points = {};
     for (const r of rows.children) {
-      const y = r.querySelector('input[name="year"]').value.trim();
-      const p = r.querySelector('input[name="price"]').value.trim();
+      const y = r.querySelector('input[data-f="year"]').value.trim();
+      const p = r.querySelector('input[data-f="price"]').value.trim();
       if (!y && !p) continue;                       // an untouched row is not an error
       if (!y || !p) { msg.className = "err"; msg.textContent = "Every row needs both a year and a price."; return; }
       points[y] = Number(p);

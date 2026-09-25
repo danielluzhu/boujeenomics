@@ -107,14 +107,17 @@
           <label>Reference or variant<input name="ref" maxlength="120" placeholder="126710BLRO 'Pepsi'"></label>
           <label>Category<select name="category" required></select></label>
           <label>Measuring<select name="kind">
-            <option value="resale">Resale value — what you could sell it for</option>
-            <option value="retail">Retail price — what the shop charges</option>
+            <option value="resale">Resale value</option>
+            <option value="retail">Retail price</option>
           </select></label>
           <label>How good is this data?<select name="confidence">
-            <option value="estimated">Estimated — my best guess</option>
-            <option value="medium">Reported — from published prices or auction results</option>
+            <option value="estimated">Estimated</option>
+            <option value="medium">Reported</option>
           </select></label>
         </div>
+        <p class="hint" style="margin:-4px 0 0">Resale value is what you could sell it for, measured against the
+          S&amp;P 500. Retail price is what the shop charges, measured against inflation. Mark it
+          <em>Reported</em> only if the prices come from published lists or auction results.</p>
         <label class="full">Source<input name="source" maxlength="300" placeholder="Where these prices come from"></label>
         <label class="full">Caveat<input name="caveat" maxlength="500" placeholder="Anything that would mislead someone reading this"></label>
 
