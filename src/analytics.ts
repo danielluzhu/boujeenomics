@@ -361,9 +361,11 @@ export function brands(db: Database, opts: { category?: string; kind?: string } 
   if (opts.category) { where.push("category_id = ?"); args.push(opts.category); }
   if (opts.kind) { where.push("kind = ?"); args.push(opts.kind); }
   const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  // SQLite's NOCASE collation is ASCII-only, so it files "Château d'Yquem" after "Chopard".
+  // Ordering happens in JS where accents fold the way a reader expects.
   return db.query<{ brand: string; n: number }, string[]>(
-    `SELECT brand, COUNT(*) n FROM items ${clause} GROUP BY brand ORDER BY brand COLLATE NOCASE`,
-  ).all(...args);
+    `SELECT brand, COUNT(*) n FROM items ${clause} GROUP BY brand`,
+  ).all(...args).sort((a, b) => a.brand.localeCompare(b.brand));
 }
 
 /** How many items sit in each category and confidence tier — the browse header. */
