@@ -1055,7 +1055,7 @@ async function removeItem(id, name) {
 // analysis view above, which only ever shows one kind and one page of it.
 const IX_PAGE = 50;
 const ixState = {
-  q: "", cat: "", brand: "", kind: "", conf: "", sort: "name",
+  q: "", cat: "", brand: "", kind: "", conf: "", outcome: "", sort: "name",
   page: 0, total: 0, rows: [], selected: null, facets: null,
 };
 
@@ -1070,6 +1070,7 @@ async function ixFetch() {
   if (ixState.kind) q.set("kind", ixState.kind);
   if (ixState.conf === "tracked") q.set("tracked", "1");
   else if (ixState.conf) q.set("confidence", ixState.conf);
+  if (ixState.outcome) q.set("outcome", ixState.outcome);
 
   const res = await (await fetch("/api/items?" + q)).json();
   ixState.rows = res.items;
@@ -1097,9 +1098,12 @@ async function ixRefresh() {
 
 function ixRender() {
   const f = ixState.facets;
+  ixRenderWarning();
+  const what = ixState.outcome === "beat" ? " beat their benchmark"
+             : ixState.outcome === "lost" ? " lost to their benchmark" : " match";
   $("#ixCount").innerHTML = ixState.total === (f?.total ?? -1)
     ? `All <b>${ixState.total.toLocaleString()}</b> items.`
-    : `<b>${ixState.total.toLocaleString()}</b> of ${(f?.total ?? 0).toLocaleString()} items match.`;
+    : `<b>${ixState.total.toLocaleString()}</b> of ${(f?.total ?? 0).toLocaleString()} items${what}.`;
 
   const t = $("#ixTable");
   if (!ixState.rows.length) {
@@ -1132,6 +1136,33 @@ function ixRender() {
 
   ixRenderPager();
   renderDetailInto("#ixDetail", ixState.selected, () => { ixState.selected = null; ixRefresh(); });
+}
+
+/**
+ * The winners list is the one view on this site that can mislead, because its members are
+ * selected for having won. It says so, on the view itself, rather than in a footnote.
+ */
+function ixRenderWarning() {
+  const box = $("#ixWarn");
+  if (ixState.outcome !== "beat") { box.hidden = true; box.innerHTML = ""; return; }
+  box.hidden = false;
+  box.innerHTML = `
+    <h4>Read this list the right way round</h4>
+    <p>Everything here is here <b>because</b> it won. That is survivorship bias in its purest
+      form — the same reasoning that sells people handbags as investments. For every object on
+      this list there are thousands of near-identical ones that lost, and no way to have known
+      in advance which was which.</p>
+    <p>Look at <b>what kind of thing</b> wins: vintage, fixed-supply or one-of-a-kind. A closed
+      distillery, forty bottles, 106 cars, a dial that was a factory mistake. Nothing you can
+      walk into a boutique and buy is on the resale side of this list — and famous
+      multi-baggers that people quote as proof, like a 1959 Les Paul or an F.P. Journe
+      Chronomètre Bleu, still lose once you measure from their own start rather than from
+      their best year.</p>
+    <p>And watch the <b>Measuring</b> column, because the two halves mean opposite things. A
+      <b>resale</b> row beating the S&amp;P 500 is a real return. A <b>retail</b> row beating
+      inflation is not good news for you at all — it means the object got more expensive
+      faster than money lost value. A Chanel Flap outrunning CPI is a price rise, not a
+      profit, and you only capture it if you already owned one.</p>`;
 }
 
 function ixRenderPager() {
@@ -1177,6 +1208,7 @@ async function wireIndex() {
   $("#ixKind").onchange = async (e) => { ixState.kind = e.target.value; reset(); await ixLoadBrands(); ixRefresh(); };
   $("#ixBrand").onchange = (e) => { ixState.brand = e.target.value; reset(); ixRefresh(); };
   $("#ixConf").onchange = (e) => { ixState.conf = e.target.value; reset(); ixRefresh(); };
+  $("#ixOutcome").onchange = (e) => { ixState.outcome = e.target.value; reset(); ixRefresh(); };
   $("#ixSort").onchange = (e) => { ixState.sort = e.target.value; reset(); ixRefresh(); };
   $("#ixSearch").addEventListener("input", debounce((e) => {
     ixState.q = e.target.value; reset(); ixRefresh();

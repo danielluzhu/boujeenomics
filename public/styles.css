@@ -427,3 +427,12 @@ footer a { color: var(--text-secondary); }
   width: 68px; min-width: 0; padding: 6px 8px; font-size: 13px; text-align: center;
 }
 .topbar-actions a.share { text-decoration: none; display: inline-flex; align-items: center; }
+
+/* ---- the survivorship warning on the winners view ---- */
+.warn {
+  border: 1px solid var(--gold); border-left-width: 3px; border-radius: 12px;
+  padding: 14px 18px; margin: 4px 0 16px; background: color-mix(in srgb, var(--gold) 7%, transparent);
+}
+.warn h4 { margin: 0 0 6px; font-size: 14px; font-weight: 650; color: var(--text-primary); }
+.warn p { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--text-secondary); max-width: 82ch; }
+.warn p + p { margin-top: 8px; }

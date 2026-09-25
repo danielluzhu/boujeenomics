@@ -11,12 +11,14 @@ with the boring stuff — the S&P 500, US housing, gold and cash — over any wi
 
 ![The full index](docs/index.png)
 
+![The ones that beat the index](docs/winners.png)
+
 ## Running it
 
 ```bash
 bun run seed     # build boujee.db from data/assets.json
 bun start        # http://localhost:4321
-bun test         # 59 tests
+bun test         # 65 tests
 ```
 
 `bun run dev` watches and reloads. Set `PORT` to move it off 4321.
@@ -104,6 +106,24 @@ own span.
 Years between anchors are filled **geometrically**, so a stretch between two anchors compounds at
 one constant rate and agrees with the CAGR reported for it. A straight line in price terms would
 imply a changing growth rate and disagree with every other number on the page.
+
+## The ones that actually won
+
+Seven of the twenty-two tracked resale items beat the S&P 500 over their own span. The **Outcome**
+filter in the full index shows them, and the pattern in *which* ones is the real finding: every
+winner is vintage, fixed-supply or one-of-a-kind — a closed distillery, forty bottles, 106 cars, a
+dial that was a factory mistake. Nothing you can walk into a boutique and buy is on the resale side
+of that list.
+
+Three famous multi-baggers are included deliberately as controls, because they **lose**: a 1959 Les
+Paul, an F.P. Journe Chronomètre Bleu and a Carrera RS 2.7 all trail the index once measured from
+their own start rather than from their best year. Without them the set would only be flattering.
+
+The winners view carries a warning on the view itself, not in a footnote, because it is the one
+screen here that can mislead: its members are selected for having won, which is survivorship bias
+in its purest form — the same reasoning that sells people handbags as investments. It also flags
+that a **retail** row beating inflation is not a return at all; it means the object got more
+expensive faster than money lost value.
 
 ## Browsing the whole thing
 
@@ -218,7 +238,7 @@ src/catalogue.ts    derives a price series from a catalogue specification
 src/items-write.ts  validation and persistence for user-submitted models
 src/server.ts       Bun.serve — the API and static files
 public/             the frontend; charts and the favicon are hand-written SVG, no libraries
-test/               59 tests over the return maths, the write path, interpolation and the catalogue
+test/               65 tests over the return maths, the write path, interpolation and the catalogue
 ```
 
 ### API
@@ -228,6 +248,7 @@ test/               59 tests over the return maths, the write path, interpolatio
 | `GET /api/analysis?from=&to=&real=&amount=` | per-asset index and dollar paths plus every summary metric |
 | `GET /api/items?q=&category=&kind=&tracked=&sort=&limit=&offset=` | search and page the catalogue (series omitted) |
 | `GET /api/items/:id` | one model, with its price anchors and filled annual path |
+| `GET /api/items?outcome=beat\|lost` | only the items that beat, or lost to, their benchmark |
 | `GET /api/facets` | totals by category, confidence tier and kind |
 | `GET /api/brands?category=&kind=` | distinct brands with counts, for the browse filters |
 | `GET /api/summary?from=&to=&real=` | the headline counts, over tracked models only |

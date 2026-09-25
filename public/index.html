@@ -217,6 +217,12 @@
           <option value="tracked">Tracked only</option>
           <option value="modelled">Modelled only</option>
         </select></div>
+      <div class="ctl"><label for="ixOutcome">Outcome</label>
+        <select id="ixOutcome">
+          <option value="">All</option>
+          <option value="beat">Beat the index</option>
+          <option value="lost">Lost to it</option>
+        </select></div>
       <div class="ctl"><label for="ixSort">Sort by</label>
         <select id="ixSort">
           <option value="name">Name</option>
@@ -226,6 +232,7 @@
         </select></div>
     </div>
 
+    <div class="warn" id="ixWarn" hidden></div>
     <p class="scope-note" id="ixCount"></p>
     <div class="chart-scroll"><table id="ixTable"></table></div>
     <div class="pager" id="ixPager"></div>
