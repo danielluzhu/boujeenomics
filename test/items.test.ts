@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
 import { unlinkSync } from "node:fs";
-import { analyseItems, interpolateAnnual, summarise } from "../src/analytics";
+import { analyseItems, brands, facets, interpolateAnnual, summarise } from "../src/analytics";
 
 /** The catalogue is large, so tests ask for what they need rather than everything. */
 const items = (q: any = {}) => analyseItems(db, { limit: 5000, withSeries: true, ...q }).items;
@@ -251,5 +251,78 @@ describe("catalogue at scale", () => {
       expect(i.lastYear).toBeLessThanOrEqual(2025);
       expect(i.lastYear).toBeGreaterThan(i.firstYear);
     }
+  });
+});
+
+describe("browsing the whole catalogue", () => {
+  test("omitting kind returns every item, not one side of it", () => {
+    const all = analyseItems(db, { limit: 1 }).total;
+    const resale = analyseItems(db, { kind: "resale", limit: 1 }).total;
+    const retail = analyseItems(db, { kind: "retail", limit: 1 }).total;
+    expect(resale).toBeGreaterThan(0);
+    expect(retail).toBeGreaterThan(0);
+    expect(all).toBe(resale + retail);
+  });
+
+  test("facets count the same population the list does", () => {
+    const f = facets(db);
+    expect(f.total).toBe(analyseItems(db, { limit: 1 }).total);
+    expect(f.byCategory.reduce((a, c) => a + c.n, 0)).toBe(f.total);
+    expect(f.byConfidence.reduce((a, c) => a + c.n, 0)).toBe(f.total);
+    expect(f.byKind.reduce((a, c) => a + c.n, 0)).toBe(f.total);
+  });
+
+  test("brand facet counts match filtering by that brand", () => {
+    const list = brands(db);
+    expect(list.length).toBeGreaterThan(50);
+    for (const b of list.slice(0, 12)) {
+      expect(analyseItems(db, { brand: b.brand, limit: 1 }).total).toBe(b.n);
+    }
+  });
+
+  test("brands are returned in case-insensitive alphabetical order", () => {
+    const names = brands(db).map((b) => b.brand);
+    const sorted = [...names].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+    expect(names).toEqual(sorted);
+  });
+
+  test("filtering by confidence isolates one tier", () => {
+    for (const tier of ["modelled", "medium"]) {
+      const got = analyseItems(db, { confidence: tier, limit: 500 }).items;
+      expect(got.length).toBeGreaterThan(0);
+      for (const i of got) expect(i.confidence).toBe(tier);
+    }
+  });
+
+  test("filters compose, and narrowing never widens the result", () => {
+    const wide = analyseItems(db, { category: "watches", limit: 1 }).total;
+    const narrow = analyseItems(db, { category: "watches", brand: "Rolex", limit: 1 }).total;
+    const narrower = analyseItems(db, { category: "watches", brand: "Rolex", kind: "resale", limit: 1 }).total;
+    expect(narrow).toBeLessThanOrEqual(wide);
+    expect(narrower).toBeLessThanOrEqual(narrow);
+    expect(narrower).toBeGreaterThan(0);
+  });
+
+  test("an unknown brand or category yields nothing rather than everything", () => {
+    expect(analyseItems(db, { brand: "NotARealBrand", limit: 1 }).total).toBe(0);
+    expect(analyseItems(db, { category: "nope", limit: 1 }).total).toBe(0);
+  });
+
+  test("name sort is alphabetical across the full catalogue", () => {
+    const page = analyseItems(db, { sort: "name", limit: 60 }).items.map((i) => i.name);
+    const sorted = [...page].sort((a, b) => a.localeCompare(b));
+    expect(page).toEqual(sorted);
+  });
+
+  test("walking every page reaches every item exactly once", () => {
+    const total = analyseItems(db, { category: "jewellery", limit: 1 }).total;
+    const seen = new Set<string>();
+    for (let off = 0; off < total; off += 50) {
+      for (const i of analyseItems(db, { category: "jewellery", limit: 50, offset: off, sort: "name" }).items) {
+        expect(seen.has(i.id)).toBe(false);
+        seen.add(i.id);
+      }
+    }
+    expect(seen.size).toBe(total);
   });
 });

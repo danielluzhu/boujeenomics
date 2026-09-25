@@ -211,7 +211,10 @@ export interface ItemQuery {
   /** Free text over name, brand and reference. */
   q?: string;
   category?: string;
+  brand?: string;
   kind?: "retail" | "resale";
+  /** Exact confidence tier, for browsing by how trustworthy a series is. */
+  confidence?: string;
   /** Only items with a real tracked series — excludes the generated catalogue. */
   tracked?: boolean;
   ids?: string[];
@@ -231,7 +234,9 @@ export function analyseItems(db: Database, q: ItemQuery = {}): ItemPage {
   const where: string[] = [];
   const args: (string | number)[] = [];
   if (q.category) { where.push("i.category_id = ?"); args.push(q.category); }
+  if (q.brand) { where.push("i.brand = ?"); args.push(q.brand); }
   if (q.kind) { where.push("i.kind = ?"); args.push(q.kind); }
+  if (q.confidence) { where.push("i.confidence = ?"); args.push(q.confidence); }
   if (q.tracked) where.push("i.confidence <> 'modelled'");
   if (q.ids?.length) {
     where.push(`i.id IN (${q.ids.map(() => "?").join(",")})`);
@@ -346,5 +351,34 @@ export function summarise(db: Database, opts: { from: number; to: number; real: 
     cpi: a.cpi,
     catalogueCount: catalogue,
     topRetail: retail[0] ?? null,
+  };
+}
+
+/** Distinct brands with counts, for the browse filters. */
+export function brands(db: Database, opts: { category?: string; kind?: string } = {}) {
+  const where: string[] = [];
+  const args: string[] = [];
+  if (opts.category) { where.push("category_id = ?"); args.push(opts.category); }
+  if (opts.kind) { where.push("kind = ?"); args.push(opts.kind); }
+  const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  return db.query<{ brand: string; n: number }, string[]>(
+    `SELECT brand, COUNT(*) n FROM items ${clause} GROUP BY brand ORDER BY brand COLLATE NOCASE`,
+  ).all(...args);
+}
+
+/** How many items sit in each category and confidence tier — the browse header. */
+export function facets(db: Database) {
+  return {
+    total: db.query<{ n: number }, []>("SELECT COUNT(*) n FROM items").get()!.n,
+    byCategory: db.query<{ id: string; name: string; n: number }, []>(
+      `SELECT i.category_id id, a.name, COUNT(*) n FROM items i
+       JOIN assets a ON a.id = i.category_id GROUP BY i.category_id ORDER BY n DESC`,
+    ).all(),
+    byConfidence: db.query<{ confidence: string; n: number }, []>(
+      "SELECT confidence, COUNT(*) n FROM items GROUP BY confidence ORDER BY n DESC",
+    ).all(),
+    byKind: db.query<{ kind: string; n: number }, []>(
+      "SELECT kind, COUNT(*) n FROM items GROUP BY kind",
+    ).all(),
   };
 }

@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { analyse, analyseItems, summarise } from "./analytics";
+import { analyse, analyseItems, brands, facets, summarise } from "./analytics";
 import { DB_PATH, open, openWritable, seed } from "./db";
 import { ValidationError, deleteItem, insertItem } from "./items-write";
 
@@ -81,6 +81,18 @@ const server = Bun.serve({
       return page.items.length ? json(page.items[0]) : json({ error: "no such model" }, 404);
     }
 
+    if (url.pathname === "/api/facets") {
+      return json(facets(db));
+    }
+
+    if (url.pathname === "/api/brands") {
+      const q = url.searchParams;
+      return json(brands(db, {
+        category: q.get("category") || undefined,
+        kind: q.get("kind") || undefined,
+      }));
+    }
+
     if (url.pathname === "/api/summary") {
       const q = url.searchParams;
       return json(summarise(db, {
@@ -101,12 +113,14 @@ const server = Bun.serve({
         to: clampInt(q.get("to"), 2025, 2005, 2025),
         q: (q.get("q") ?? "").slice(0, 120),
         category: q.get("category") || undefined,
+        brand: q.get("brand") || undefined,
+        confidence: q.get("confidence") || undefined,
         kind: kind === "retail" || kind === "resale" ? kind : undefined,
         tracked: q.get("tracked") === "1",
         ids: q.get("ids") ? q.get("ids")!.split(",").filter(Boolean).slice(0, 24) : undefined,
         withSeries: q.get("series") === "1",
         sort: sort === "cagr" || sort === "name" || sort === "price" ? sort : "edge",
-        limit: clampInt(q.get("limit"), 25, 1, 200),
+        limit: clampInt(q.get("limit"), 25, 1, 100),
         offset: clampInt(q.get("offset"), 0, 0, 100000),
       }));
     }
