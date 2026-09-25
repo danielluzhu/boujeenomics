@@ -78,6 +78,25 @@
   </section>
 
   <section class="card">
+    <h2>The actual objects</h2>
+    <p class="hint" id="itemHint"></p>
+    <div class="controls" style="margin-bottom:14px">
+      <div class="ctl"><label>Measuring</label>
+        <div class="seg" id="kindSeg">
+          <button type="button" data-v="resale" aria-pressed="true">Resale value</button>
+          <button type="button" data-v="retail" aria-pressed="false">Retail price</button>
+        </div>
+      </div>
+      <div class="ctl"><label for="catSel">Category</label>
+        <select id="catSel"><option value="">All</option></select></div>
+    </div>
+    <div class="chart-scroll"><svg id="dumbbell" class="chart" role="img" aria-labelledby="itemHint"></svg></div>
+    <div class="legend" id="itemLegend"></div>
+    <div class="chart-scroll" style="margin-top:18px"><table id="itemTable"></table></div>
+    <div id="itemDetail"></div>
+  </section>
+
+  <section class="card">
     <h2>The numbers</h2>
     <p class="hint">Sortable. Volatility is the standard deviation of annual returns; max drawdown is the
       deepest peak-to-trough fall within the window.</p>

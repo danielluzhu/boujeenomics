@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { analyse } from "./analytics";
+import { analyse, analyseItems } from "./analytics";
 import { DB_PATH, open, seed } from "./db";
 
 if (!existsSync(DB_PATH)) {
@@ -40,6 +40,14 @@ const server = Bun.serve({
           amount: clampInt(q.get("amount"), 10_000, 1, 1_000_000_000),
         }),
       );
+    }
+
+    if (url.pathname === "/api/items") {
+      const q = url.searchParams;
+      return json(analyseItems(db, {
+        from: clampInt(q.get("from"), 2005, 2005, 2025),
+        to: clampInt(q.get("to"), 2025, 2005, 2025),
+      }));
     }
 
     if (url.pathname === "/api/provenance") {

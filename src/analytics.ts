@@ -136,3 +136,91 @@ export function analyse(
     },
   };
 }
+
+/* ------------------------------------------------------------------ items */
+
+export interface ItemMetrics {
+  id: string;
+  name: string;
+  ref: string;
+  brand: string;
+  category: string;
+  categoryName: string;
+  kind: "retail" | "resale";
+  blurb: string;
+  source: string;
+  confidence: string;
+  caveat: string;
+  /** Anchor years actually priced, ascending. */
+  points: { year: number; price: number }[];
+  firstYear: number;
+  lastYear: number;
+  firstPrice: number;
+  lastPrice: number;
+  multiple: number;
+  cagrPct: number;
+  /** What the benchmark did over this item's own span, so the comparison is like-for-like. */
+  benchmarkId: "sp500" | "cpi";
+  benchmarkName: string;
+  benchmarkCagrPct: number;
+  /** Percentage points per year above or below the benchmark. */
+  edgePct: number;
+  /** What the same money would have become in the benchmark over the same span. */
+  benchmarkValue: number;
+}
+
+/** Compound annual growth of a stored annual-return series between two years. */
+function spanCagr(db: Database, id: string, y0: number, y1: number): number {
+  if (y1 <= y0) return 0;
+  const rs = db.query<{ pct: number }, [string, number, number]>(
+    "SELECT pct FROM returns WHERE asset_id = ? AND year > ? AND year <= ? ORDER BY year",
+  ).all(id, y0, y1).map((r) => r.pct);
+  if (!rs.length) return 0;
+  return (Math.pow(compound(rs), 1 / rs.length) - 1) * 100;
+}
+
+export function analyseItems(
+  db: Database,
+  opts: { from: number; to: number } = { from: 0, to: 9999 },
+): ItemMetrics[] {
+  const rows = db.query<
+    { id: string; name: string; ref: string; brand: string; category_id: string; categoryName: string;
+      kind: "retail" | "resale"; blurb: string; source: string; confidence: string; caveat: string },
+    []
+  >(`SELECT i.id, i.name, i.ref, i.brand, i.category_id, a.name categoryName,
+             i.kind, i.blurb, i.source, i.confidence, i.caveat
+      FROM items i JOIN assets a ON a.id = i.category_id ORDER BY i.ord`).all();
+
+  const out: ItemMetrics[] = [];
+  for (const r of rows) {
+    const points = db.query<{ year: number; price: number }, [string, number, number]>(
+      "SELECT year, price FROM item_prices WHERE item_id = ? AND year BETWEEN ? AND ? ORDER BY year",
+    ).all(r.id, opts.from, opts.to);
+    // One anchor inside the window says nothing about a rate of change.
+    if (points.length < 2) continue;
+
+    const firstYear = points[0].year, lastYear = points.at(-1)!.year;
+    const firstPrice = points[0].price, lastPrice = points.at(-1)!.price;
+    const n = lastYear - firstYear;
+    const multiple = lastPrice / firstPrice;
+
+    // Retail price is a cost, so it belongs against inflation; resale value is a return,
+    // so it belongs against the index you'd otherwise have bought.
+    const benchmarkId = r.kind === "retail" ? "cpi" : "sp500";
+    const benchmarkCagrPct = spanCagr(db, benchmarkId, firstYear, lastYear);
+    const cagrPct = (Math.pow(multiple, 1 / n) - 1) * 100;
+
+    out.push({
+      id: r.id, name: r.name, ref: r.ref, brand: r.brand,
+      category: r.category_id, categoryName: r.categoryName, kind: r.kind,
+      blurb: r.blurb, source: r.source, confidence: r.confidence, caveat: r.caveat,
+      points, firstYear, lastYear, firstPrice, lastPrice, multiple, cagrPct,
+      benchmarkId,
+      benchmarkName: benchmarkId === "cpi" ? "US inflation" : "S&P 500",
+      benchmarkCagrPct,
+      edgePct: cagrPct - benchmarkCagrPct,
+      benchmarkValue: firstPrice * Math.pow(1 + benchmarkCagrPct / 100, n),
+    });
+  }
+  return out;
+}
