@@ -417,3 +417,13 @@ footer a { color: var(--text-secondary); }
 .pager .count { color: var(--muted); font-size: 13px; }
 .scope-note { color: var(--muted); font-size: 12.5px; margin: -8px 0 4px; max-width: 80ch; }
 .badge.modelled { border-color: var(--border-strong); color: var(--muted); }
+
+/* ---- the full index ---- */
+#index table { font-size: 13px; }
+#index th, #index td { padding: 9px 11px; }
+#index td.model { max-width: 320px; white-space: normal; }
+.pager .jump { display: inline-flex; align-items: center; gap: 6px; }
+.pager .jump input {
+  width: 68px; min-width: 0; padding: 6px 8px; font-size: 13px; text-align: center;
+}
+.topbar-actions a.share { text-decoration: none; display: inline-flex; align-items: center; }

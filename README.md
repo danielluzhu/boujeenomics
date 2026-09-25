@@ -9,12 +9,14 @@ with the boring stuff — the S&P 500, US housing, gold and cash — over any wi
 
 ![Named models against their benchmarks](docs/items.png)
 
+![The full index](docs/index.png)
+
 ## Running it
 
 ```bash
 bun run seed     # build boujee.db from data/assets.json
 bun start        # http://localhost:4321
-bun test         # 50 tests
+bun test         # 59 tests
 ```
 
 `bun run dev` watches and reloads. Set `PORT` to move it off 4321.
@@ -26,6 +28,8 @@ bun test         # 50 tests
 - **Annualised return** for all 12 categories, traditional vs luxury.
 - **The actual objects** — 17 named models (Daytona, Nautilus, Birkin, Chanel Flap, F40, 250 GTO,
   Countach, Cartier Love and more), each against its own benchmark, with its real price path.
+- **Browse every item tracked** — the full index, all 1,029, filterable by category, brand,
+  measurement and data quality, 50 to a page.
 - **Search 1,000+ named models** — by brand, family or variant ("birkin togo", "les paul 1959",
   "submariner hulk") — and put any of them on the chart.
 - **Add your own models**, saved to the database for everyone.
@@ -100,6 +104,15 @@ own span.
 Years between anchors are filled **geometrically**, so a stretch between two anchors compounds at
 one constant rate and agrees with the CAGR reported for it. A straight line in price terms would
 imply a changing growth rate and disagree with every other number on the page.
+
+## Browsing the whole thing
+
+**The full index** lists every item in the database in one place — a different job from the
+analysis view above it, which only ever shows one kind and one page. Filter by category, brand
+(126 of them, re-listed as you narrow so the menu never offers a brand that returns nothing),
+retail vs resale, and data quality; sort by name, return, gap or price; page 50 at a time with
+first/previous/next/last and a page jump. Click any row for its price history, or send it straight
+to the chart at the top.
 
 ## The catalogue — 1,000+ models, and what their prices actually are
 
@@ -205,7 +218,7 @@ src/catalogue.ts    derives a price series from a catalogue specification
 src/items-write.ts  validation and persistence for user-submitted models
 src/server.ts       Bun.serve — the API and static files
 public/             the frontend; charts and the favicon are hand-written SVG, no libraries
-test/               50 tests over the return maths, the write path, interpolation and the catalogue
+test/               59 tests over the return maths, the write path, interpolation and the catalogue
 ```
 
 ### API
@@ -215,6 +228,8 @@ test/               50 tests over the return maths, the write path, interpolatio
 | `GET /api/analysis?from=&to=&real=&amount=` | per-asset index and dollar paths plus every summary metric |
 | `GET /api/items?q=&category=&kind=&tracked=&sort=&limit=&offset=` | search and page the catalogue (series omitted) |
 | `GET /api/items/:id` | one model, with its price anchors and filled annual path |
+| `GET /api/facets` | totals by category, confidence tier and kind |
+| `GET /api/brands?category=&kind=` | distinct brands with counts, for the browse filters |
 | `GET /api/summary?from=&to=&real=` | the headline counts, over tracked models only |
 | `POST /api/items` | save a new model (JSON body; see the form for the shape) |
 | `DELETE /api/items/:id` | remove a user-added model |

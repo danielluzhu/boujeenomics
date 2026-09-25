@@ -46,6 +46,7 @@
       <button type="button" data-v="light" aria-pressed="false">Light</button>
       <button type="button" data-v="dark" aria-pressed="false">Dark</button>
     </div>
+    <a href="#index" class="share">Browse all</a>
     <button type="button" id="shareBtn" class="share">Copy link</button>
   </div>
 </header>
@@ -190,6 +191,45 @@
         </div>
       </form>
     </details>
+  </section>
+
+  <section class="card" id="index">
+    <p class="eyebrow">The full index</p>
+    <h2>Every item tracked</h2>
+    <p class="hint" id="indexHint">Every model in the database, in one list.</p>
+
+    <div class="toolbar inner">
+      <div class="ctl grow"><label for="ixSearch">Search</label>
+        <input id="ixSearch" type="search" placeholder="Brand, model or variant…" autocomplete="off"></div>
+      <div class="ctl"><label for="ixCat">Category</label>
+        <select id="ixCat"><option value="">All</option></select></div>
+      <div class="ctl"><label for="ixBrand">Brand</label>
+        <select id="ixBrand"><option value="">All brands</option></select></div>
+      <div class="ctl"><label for="ixKind">Measuring</label>
+        <select id="ixKind">
+          <option value="">Both</option>
+          <option value="resale">Resale value</option>
+          <option value="retail">Retail price</option>
+        </select></div>
+      <div class="ctl"><label for="ixConf">Data</label>
+        <select id="ixConf">
+          <option value="">All</option>
+          <option value="tracked">Tracked only</option>
+          <option value="modelled">Modelled only</option>
+        </select></div>
+      <div class="ctl"><label for="ixSort">Sort by</label>
+        <select id="ixSort">
+          <option value="name">Name</option>
+          <option value="edge">Gap vs benchmark</option>
+          <option value="cagr">Return per year</option>
+          <option value="price">Price today</option>
+        </select></div>
+    </div>
+
+    <p class="scope-note" id="ixCount"></p>
+    <div class="chart-scroll"><table id="ixTable"></table></div>
+    <div class="pager" id="ixPager"></div>
+    <div id="ixDetail"></div>
   </section>
 
   <section class="card">

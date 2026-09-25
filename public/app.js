@@ -65,6 +65,9 @@ async function reload() {
   }));
   renderPicker(); drawGrowth();
   await refreshItems();
+  ixState.page = 0;
+  ixState.selected = null;
+  await ixRefresh();          // spans and benchmarks are window-scoped
 }
 
 function buildYearSelects() {
@@ -830,37 +833,47 @@ function renderItemTable(rows) {
 }
 
 async function renderItemDetail() {
-  const box = $("#itemDetail");
-  if (!itemState.selected) { box.innerHTML = ""; return; }
-  const r = await getItemDetail(itemState.selected);
+  await renderDetailInto("#itemDetail", itemState.selected, () => { itemState.selected = null; renderItems(); });
+}
+
+/** The detail panel, shared by the objects view and the full index. */
+async function renderDetailInto(sel, id, onRemoved) {
+  const box = $(sel);
+  if (!box) return;
+  if (!id) { box.innerHTML = ""; return; }
+  const r = await getItemDetail(id);
   if (!r) { box.innerHTML = ""; return; }
+
   const onChart = state.pickedItems.has(r.id);
+  const pathId = `${sel.slice(1)}-path`;
   box.innerHTML = `<div class="detail">
       <h3>${esc(r.name)}</h3>
       <p class="meta">${esc(r.ref || "—")} · ${esc(r.categoryName)} · ${r.kind === "retail" ? "retail price" : "resale value"}
         · <span class="badge ${confClass(r.confidence)}">${CONF_LABEL[r.confidence] ?? esc(r.confidence)}</span></p>
       ${r.blurb ? `<p style="margin:0 0 12px">${esc(r.blurb)}</p>` : ""}
       <p style="margin:0 0 12px">
-        <button class="chip" id="plotItem" type="button"${onChart ? " disabled" : ""}>${onChart ? "On the chart above" : "＋ Plot this on the chart"}</button>
-        ${r.origin === "user" ? `<button class="delete-link" id="delItem" style="margin-left:14px">Remove this model</button>` : ""}</p>
-      <div class="chart-scroll"><svg id="itemPath" class="chart"></svg></div>
+        <button class="chip" data-act="plot" type="button"${onChart ? " disabled" : ""}>${onChart ? "On the chart above" : "＋ Plot this on the chart"}</button>
+        ${r.origin === "user" ? `<button class="delete-link" data-act="del" style="margin-left:14px">Remove this model</button>` : ""}</p>
+      <div class="chart-scroll"><svg id="${pathId}" class="chart"></svg></div>
       <p class="caveat"><b>Source:</b> ${esc(r.source)}${r.caveat ? `<br><b>Caveat:</b> ${esc(r.caveat)}` : ""}</p>
     </div>`;
-  drawItemPath(r);
-  const plot = $("#plotItem");
-  if (plot) plot.onclick = async () => {
+  drawItemPath(r, pathId);
+
+  const plot = box.querySelector('[data-act="plot"]');
+  if (plot) plot.onclick = () => {
     if (state.pickedItems.has(r.id)) return;
     if (totalPicked() >= MAX_SERIES) { toast("Eight lines is the limit — remove one first"); return; }
     state.pickedItems.add(r.id);
-    renderPicker(); drawGrowth(); writeUrl(); renderItemDetail();
+    renderPicker(); drawGrowth(); writeUrl();
+    renderDetailInto(sel, id, onRemoved);
     $("#chart").scrollIntoView({ behavior: "smooth", block: "start" });
   };
-  const del = $("#delItem");
-  if (del) del.onclick = () => removeItem(r.id, r.name);
+  const del = box.querySelector('[data-act="del"]');
+  if (del) del.onclick = async () => { await removeItem(r.id, r.name); onRemoved?.(); };
 }
 
-function drawItemPath(r) {
-  const svg = $("#itemPath");
+function drawItemPath(r, svgId = "itemPath") {
+  const svg = document.getElementById(svgId);
   if (!svg || !r.points?.length) return;
   const W = Math.max(svg.clientWidth || 600, 560), H = 240;
   const m = { t: 16, r: 20, b: 30, l: 78 };
@@ -1036,6 +1049,142 @@ async function removeItem(id, name) {
   if (state.data) { renderHero(); renderPicker(); drawGrowth(); }
 }
 
+
+/* ============================================================ the full index */
+// A plain, complete list of every model in the database — a different job from the
+// analysis view above, which only ever shows one kind and one page of it.
+const IX_PAGE = 50;
+const ixState = {
+  q: "", cat: "", brand: "", kind: "", conf: "", sort: "name",
+  page: 0, total: 0, rows: [], selected: null, facets: null,
+};
+
+async function ixFetch() {
+  const q = new URLSearchParams({
+    from: state.from, to: state.to, sort: ixState.sort,
+    limit: IX_PAGE, offset: ixState.page * IX_PAGE,
+  });
+  if (ixState.q.trim()) q.set("q", ixState.q.trim());
+  if (ixState.cat) q.set("category", ixState.cat);
+  if (ixState.brand) q.set("brand", ixState.brand);
+  if (ixState.kind) q.set("kind", ixState.kind);
+  if (ixState.conf === "tracked") q.set("tracked", "1");
+  else if (ixState.conf) q.set("confidence", ixState.conf);
+
+  const res = await (await fetch("/api/items?" + q)).json();
+  ixState.rows = res.items;
+  ixState.total = res.total;
+}
+
+/** Brands are re-listed when the category or kind narrows, so the menu never offers a
+ *  brand that would return nothing. */
+async function ixLoadBrands() {
+  const q = new URLSearchParams();
+  if (ixState.cat) q.set("category", ixState.cat);
+  if (ixState.kind) q.set("kind", ixState.kind);
+  const list = await (await fetch("/api/brands?" + q)).json();
+  const sel = $("#ixBrand");
+  const keep = list.some((b) => b.brand === ixState.brand) ? ixState.brand : "";
+  if (keep !== ixState.brand) ixState.brand = "";
+  sel.innerHTML = `<option value="">All brands</option>` +
+    list.map((b) => `<option value="${esc(b.brand)}"${b.brand === keep ? " selected" : ""}>${esc(b.brand)} (${b.n})</option>`).join("");
+}
+
+async function ixRefresh() {
+  await ixFetch();
+  ixRender();
+}
+
+function ixRender() {
+  const f = ixState.facets;
+  $("#ixCount").innerHTML = ixState.total === (f?.total ?? -1)
+    ? `All <b>${ixState.total.toLocaleString()}</b> items.`
+    : `<b>${ixState.total.toLocaleString()}</b> of ${(f?.total ?? 0).toLocaleString()} items match.`;
+
+  const t = $("#ixTable");
+  if (!ixState.rows.length) {
+    t.innerHTML = `<tbody><tr><td class="empty">Nothing matches those filters.</td></tr></tbody>`;
+    $("#ixPager").innerHTML = "";
+    return;
+  }
+  t.innerHTML =
+    `<thead><tr><th>Model</th><th>Category</th><th>Measuring</th><th>Years</th>
+      <th>Then</th><th>Now</th><th>Per year</th><th>vs benchmark</th><th>Data</th></tr></thead><tbody>` +
+    ixState.rows.map((r) => `
+      <tr class="item-row" data-id="${esc(r.id)}" aria-selected="${ixState.selected === r.id}">
+        <td class="model"><span class="swatch" style="--c:${ITEM_COLOR[r.kind]}"></span>${esc(r.name)}
+            ${r.ref ? `<div class="ref">${esc(r.ref)}</div>` : ""}</td>
+        <td>${esc(r.categoryName)}</td>
+        <td>${r.kind === "retail" ? "Retail" : "Resale"}</td>
+        <td class="num">${esc(r.firstYear)}–${esc(r.lastYear)}</td>
+        <td class="num">${money(r.firstPrice)}</td>
+        <td class="num">${money(r.lastPrice)}</td>
+        <td class="num">${signed(r.cagrPct)}</td>
+        <td class="num">${signed(r.edgePct)}</td>
+        <td><span class="badge ${confClass(r.confidence)}">${CONF_LABEL[r.confidence] ?? esc(r.confidence)}</span>
+            ${r.origin === "user" ? `<span class="badge">added here</span>` : ""}</td>
+      </tr>`).join("") + "</tbody>";
+
+  t.querySelectorAll("tr.item-row").forEach((tr) => tr.onclick = () => {
+    ixState.selected = ixState.selected === tr.dataset.id ? null : tr.dataset.id;
+    ixRender();
+  });
+
+  ixRenderPager();
+  renderDetailInto("#ixDetail", ixState.selected, () => { ixState.selected = null; ixRefresh(); });
+}
+
+function ixRenderPager() {
+  const pages = Math.max(1, Math.ceil(ixState.total / IX_PAGE));
+  const first = ixState.page * IX_PAGE + 1;
+  const last = Math.min(ixState.total, (ixState.page + 1) * IX_PAGE);
+  $("#ixPager").innerHTML =
+    `<button type="button" data-go="first"${ixState.page === 0 ? " disabled" : ""}>« First</button>
+     <button type="button" data-go="prev"${ixState.page === 0 ? " disabled" : ""}>Previous</button>
+     <span class="jump">Page <input id="ixJump" type="number" min="1" max="${pages}" value="${ixState.page + 1}"> of ${pages}</span>
+     <button type="button" data-go="next"${ixState.page >= pages - 1 ? " disabled" : ""}>Next</button>
+     <button type="button" data-go="last"${ixState.page >= pages - 1 ? " disabled" : ""}>Last »</button>
+     <span class="count">${first.toLocaleString()}–${last.toLocaleString()} of ${ixState.total.toLocaleString()}</span>`;
+
+  const go = (p) => {
+    ixState.page = Math.max(0, Math.min(pages - 1, p));
+    ixState.selected = null;
+    ixRefresh();
+    $("#index").scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  $("#ixPager").querySelectorAll("button[data-go]").forEach((b) => b.onclick = () => {
+    const at = ixState.page;
+    go(b.dataset.go === "first" ? 0 : b.dataset.go === "last" ? pages - 1
+       : b.dataset.go === "prev" ? at - 1 : at + 1);
+  });
+  const jump = $("#ixJump");
+  if (jump) jump.onchange = () => go((Number(jump.value) || 1) - 1);
+}
+
+async function wireIndex() {
+  ixState.facets = await (await fetch("/api/facets")).json();
+  $("#ixCat").innerHTML = `<option value="">All categories</option>` +
+    ixState.facets.byCategory.map((c) => `<option value="${esc(c.id)}">${esc(c.name)} (${c.n})</option>`).join("");
+  await ixLoadBrands();
+
+  $("#indexHint").innerHTML =
+    `Every model in the database — <b>${ixState.facets.total.toLocaleString()}</b> of them, across
+     ${ixState.facets.byCategory.length} categories. Click any row for its price history, or put it
+     straight on the chart at the top.`;
+
+  const reset = () => { ixState.page = 0; ixState.selected = null; };
+  $("#ixCat").onchange = async (e) => { ixState.cat = e.target.value; reset(); await ixLoadBrands(); ixRefresh(); };
+  $("#ixKind").onchange = async (e) => { ixState.kind = e.target.value; reset(); await ixLoadBrands(); ixRefresh(); };
+  $("#ixBrand").onchange = (e) => { ixState.brand = e.target.value; reset(); ixRefresh(); };
+  $("#ixConf").onchange = (e) => { ixState.conf = e.target.value; reset(); ixRefresh(); };
+  $("#ixSort").onchange = (e) => { ixState.sort = e.target.value; reset(); ixRefresh(); };
+  $("#ixSearch").addEventListener("input", debounce((e) => {
+    ixState.q = e.target.value; reset(); ixRefresh();
+  }, 200));
+
+  await ixRefresh();
+}
+
 /* ------------------------------------------------------- shareable state */
 // Everything that changes what you are looking at lives in the URL, so a link
 // carries the exact comparison rather than just the site.
@@ -1143,5 +1292,6 @@ async function boot() {
   await Promise.all([fetchSummary(), load()]);
   renderHero();
   await refreshItems();
+  await wireIndex();
 }
 boot();
