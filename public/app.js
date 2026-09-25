@@ -523,7 +523,10 @@ const CONF_LABEL = { high: "sourced", medium: "reported", estimated: "estimated"
 function renderItemTable(rows) {
   const t = $("#itemTable");
   if (!rows.length) {
-    t.innerHTML = `<tbody><tr><td class="empty">No models match. Add one below.</td></tr></tbody>`;
+    const q = itemState.query.trim();
+    t.innerHTML = `<tbody><tr><td class="empty">${
+      q ? `Nothing matches &ldquo;${esc(q)}&rdquo; in ${itemState.kind === "retail" ? "retail prices" : "resale values"}. Add it below and it stays in the database.`
+        : "No models here yet. Add one below."}</td></tr></tbody>`;
     return;
   }
   const benchHead = itemState.kind === "retail" ? "Inflation" : "S&amp;P 500";
@@ -558,10 +561,13 @@ function renderItemDetail() {
       <p class="meta">${esc(r.ref)} · ${esc(r.categoryName)} · ${r.kind === "retail" ? "retail price" : "resale value"}
         · <span class="badge ${r.confidence === "high" ? "" : "est"}">${CONF_LABEL[r.confidence] ?? esc(r.confidence)}</span></p>
       ${r.blurb ? `<p style="margin:0 0 12px">${esc(r.blurb)}</p>` : ""}
+      ${r.origin === "user" ? `<p style="margin:-6px 0 12px"><button class="delete-link" id="delItem">Remove this model</button></p>` : ""}
       <div class="chart-scroll"><svg id="itemPath" class="chart"></svg></div>
       <p class="caveat"><b>Source:</b> ${esc(r.source)}${r.caveat ? `<br><b>Caveat:</b> ${esc(r.caveat)}` : ""}</p>
     </div>`;
   drawItemPath(r);
+  const del = $("#delItem");
+  if (del) del.onclick = () => removeItem(r.id, r.name);
 }
 
 function drawItemPath(r) {
@@ -623,5 +629,104 @@ function drawItemPath(r) {
 // and a const is not initialised until its declaration is evaluated.
 buildYearSelects();
 renderProvenance();
+wireSearch();
+wireAddForm();
 loadItems();
 load();
+
+/* ------------------------------------------------- search & adding models */
+let LUXURY_CATS = [];
+
+function wireSearch() {
+  const box = $("#itemSearch");
+  let t;
+  box.addEventListener("input", () => {
+    clearTimeout(t);
+    t = setTimeout(() => { itemState.query = box.value; itemState.selected = null; renderItems(); }, 120);
+  });
+}
+
+function pointRow(year = "", price = "") {
+  const row = document.createElement("div");
+  row.className = "point-row";
+  row.innerHTML =
+    `<label>Year<input name="year" type="number" min="2005" max="2025" step="1" value="${esc(year)}" placeholder="2018"></label>
+     <label class="price">Price (USD)<input name="price" type="number" min="0" step="any" value="${esc(price)}" placeholder="12000"></label>
+     <button type="button" title="Remove this year">Remove</button>`;
+  row.querySelector("button").onclick = () => {
+    const rows = $("#pointRows");
+    if (rows.children.length > 2) row.remove();
+  };
+  return row;
+}
+
+async function wireAddForm() {
+  const form = $("#addForm"), rows = $("#pointRows"), msg = $("#addMsg");
+
+  // Only luxury categories can parent an item, which is what the server enforces too.
+  const prov = await (await fetch("/api/provenance")).json();
+  LUXURY_CATS = prov.filter((a) => a.class === "luxury");
+  form.category.innerHTML = LUXURY_CATS.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("");
+
+  for (let i = 0; i < 3; i++) rows.append(pointRow());
+  $("#addPoint").onclick = () => rows.append(pointRow());
+
+  form.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    msg.className = ""; msg.textContent = "";
+    const btn = $("#addSubmit");
+
+    const points = {};
+    for (const r of rows.children) {
+      const y = r.querySelector('input[name="year"]').value.trim();
+      const p = r.querySelector('input[name="price"]').value.trim();
+      if (!y && !p) continue;                       // an untouched row is not an error
+      if (!y || !p) { msg.className = "err"; msg.textContent = "Every row needs both a year and a price."; return; }
+      points[y] = Number(p);
+    }
+
+    const body = {
+      name: form.name.value, brand: form.brand.value, ref: form.ref.value,
+      category: form.category.value, kind: form.kind.value, confidence: form.confidence.value,
+      source: form.source.value, caveat: form.caveat.value, points,
+    };
+
+    btn.disabled = true;
+    try {
+      const res = await fetch("/api/items", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+      });
+      const out = await res.json();
+      if (!res.ok) { msg.className = "err"; msg.textContent = out.error ?? "Could not save that."; return; }
+
+      msg.className = "ok";
+      msg.textContent = `Saved. ${form.name.value} is in the database now.`;
+      form.reset();
+      rows.innerHTML = "";
+      for (let i = 0; i < 3; i++) rows.append(pointRow());
+      form.category.innerHTML = LUXURY_CATS.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("");
+
+      itemState.all = await (await fetch("/api/items")).json();
+      itemState.kind = body.kind;
+      for (const b of $("#kindSeg").children) b.setAttribute("aria-pressed", String(b.dataset.v === body.kind));
+      itemState.cat = ""; $("#catSel").value = "";
+      itemState.query = ""; $("#itemSearch").value = "";
+      itemState.selected = out.id;
+      renderItems();
+      $("#itemDetail").scrollIntoView({ behavior: "smooth", block: "center" });
+    } catch {
+      msg.className = "err"; msg.textContent = "Could not reach the server.";
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
+async function removeItem(id, name) {
+  if (!confirm(`Remove "${name}" from the database? This cannot be undone.`)) return;
+  const res = await fetch(`/api/items/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!res.ok) return;
+  itemState.selected = null;
+  itemState.all = await (await fetch("/api/items")).json();
+  renderItems();
+}

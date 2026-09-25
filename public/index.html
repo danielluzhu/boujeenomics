@@ -81,6 +81,9 @@
     <h2>The actual objects</h2>
     <p class="hint" id="itemHint"></p>
     <div class="controls" style="margin-bottom:14px">
+      <div class="ctl" style="flex:1 1 240px"><label for="itemSearch">Search</label>
+        <input id="itemSearch" type="search" placeholder="Daytona, Birkin, Ferrari…" autocomplete="off"
+               style="width:100%"></div>
       <div class="ctl"><label>Measuring</label>
         <div class="seg" id="kindSeg">
           <button type="button" data-v="resale" aria-pressed="true">Resale value</button>
@@ -94,6 +97,39 @@
     <div class="legend" id="itemLegend"></div>
     <div class="chart-scroll" style="margin-top:18px"><table id="itemTable"></table></div>
     <div id="itemDetail"></div>
+
+    <details id="addBox">
+      <summary>Add a model — it is saved to the database and stays there for everyone</summary>
+      <form id="addForm" class="addform" autocomplete="off">
+        <div class="grid2">
+          <label>Model name<input name="name" required maxlength="80" placeholder="Rolex GMT-Master II"></label>
+          <label>Brand<input name="brand" required maxlength="60" placeholder="Rolex"></label>
+          <label>Reference or variant<input name="ref" maxlength="120" placeholder="126710BLRO 'Pepsi'"></label>
+          <label>Category<select name="category" required></select></label>
+          <label>Measuring<select name="kind">
+            <option value="resale">Resale value — what you could sell it for</option>
+            <option value="retail">Retail price — what the shop charges</option>
+          </select></label>
+          <label>How good is this data?<select name="confidence">
+            <option value="estimated">Estimated — my best guess</option>
+            <option value="medium">Reported — from published prices or auction results</option>
+          </select></label>
+        </div>
+        <label class="full">Source<input name="source" maxlength="300" placeholder="Where these prices come from"></label>
+        <label class="full">Caveat<input name="caveat" maxlength="500" placeholder="Anything that would mislead someone reading this"></label>
+
+        <fieldset class="points">
+          <legend>Priced years — at least two</legend>
+          <div id="pointRows"></div>
+          <button type="button" id="addPoint" class="chip">+ Add a year</button>
+        </fieldset>
+
+        <div class="formfoot">
+          <button type="submit" id="addSubmit">Save model</button>
+          <span id="addMsg"></span>
+        </div>
+      </form>
+    </details>
   </section>
 
   <section class="card">

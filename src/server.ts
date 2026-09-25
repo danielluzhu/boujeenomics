@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { analyse, analyseItems } from "./analytics";
-import { DB_PATH, open, seed } from "./db";
+import { DB_PATH, open, openWritable, seed } from "./db";
+import { ValidationError, deleteItem, insertItem } from "./items-write";
 
 if (!existsSync(DB_PATH)) {
   console.log(`no database at ${DB_PATH} — seeding`);
@@ -8,6 +9,8 @@ if (!existsSync(DB_PATH)) {
 }
 
 const db = open();
+const wdb = openWritable();
+const MAX_BODY = 32 * 1024;
 const PORT = Number(process.env.PORT ?? 4321);
 
 const clampInt = (v: string | null, fallback: number, lo: number, hi: number) => {
@@ -40,6 +43,32 @@ const server = Bun.serve({
           amount: clampInt(q.get("amount"), 10_000, 1, 1_000_000_000),
         }),
       );
+    }
+
+    if (url.pathname === "/api/items" && req.method === "POST") {
+      const len = Number(req.headers.get("content-length") ?? 0);
+      if (len > MAX_BODY) return json({ error: "request body too large" }, 413);
+      let body: unknown;
+      try {
+        body = await req.json();
+      } catch {
+        return json({ error: "body must be valid JSON" }, 400);
+      }
+      try {
+        const { id } = insertItem(wdb, body);
+        return json({ id }, 201);
+      } catch (e) {
+        if (e instanceof ValidationError) return json({ error: e.message }, 400);
+        console.error("insert failed:", e);
+        return json({ error: "could not save that model" }, 500);
+      }
+    }
+
+    const del = url.pathname.match(/^\/api\/items\/([A-Za-z0-9-]{1,80})$/);
+    if (del && req.method === "DELETE") {
+      return deleteItem(wdb, del[1])
+        ? json({ ok: true })
+        : json({ error: "no such model, or it is part of the shipped catalogue" }, 404);
     }
 
     if (url.pathname === "/api/items") {

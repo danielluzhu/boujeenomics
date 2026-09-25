@@ -1,0 +1,136 @@
+import { afterAll, describe, expect, test } from "bun:test";
+import type { Database } from "bun:sqlite";
+import { unlinkSync } from "node:fs";
+import { analyseItems } from "../src/analytics";
+import { seed } from "../src/db";
+import { ValidationError, deleteItem, insertItem, validate } from "../src/items-write";
+
+const TMP = "/tmp/boujee-items-test.db";
+const db: Database = seed(TMP);
+
+afterAll(() => {
+  db.close();
+  for (const s of ["", "-wal", "-shm"]) { try { unlinkSync(TMP + s); } catch {} }
+});
+
+const ok = {
+  name: "Rolex GMT-Master II", brand: "Rolex", ref: "126710BLRO",
+  category: "watches", kind: "resale" as const,
+  points: { "2018": 12000, "2021": 22000, "2024": 17000 },
+};
+const reject = (body: unknown, re: RegExp) => {
+  expect(() => validate(db, body)).toThrow(ValidationError);
+  try { validate(db, body); } catch (e) { expect((e as Error).message).toMatch(re); }
+};
+
+describe("validation", () => {
+  test("accepts a well-formed model and sorts its points by year", () => {
+    const v = validate(db, { ...ok, points: { "2024": 17000, "2018": 12000, "2021": 22000 } });
+    expect(v.points.map((p) => p.year)).toEqual([2018, 2021, 2024]);
+  });
+
+  test("requires a name and a brand", () => {
+    reject({ ...ok, name: "  " }, /name is required/i);
+    reject({ ...ok, brand: "" }, /brand is required/i);
+  });
+
+  test("rejects a category that is not a luxury category", () => {
+    reject({ ...ok, category: "sp500" }, /luxury categories/);   // real asset, wrong class
+    reject({ ...ok, category: "nonsense" }, /luxury categories/);
+  });
+
+  test("rejects an unknown kind or confidence", () => {
+    reject({ ...ok, kind: "bogus" }, /retail.*resale/);
+    reject({ ...ok, confidence: "high" }, /confidence/);         // users cannot self-certify as sourced
+  });
+
+  test("rejects years outside the dataset's range and non-integers", () => {
+    reject({ ...ok, points: { "1999": 1, "2011": 2 } }, /between 2005 and 2025/);
+    reject({ ...ok, points: { "2030": 1, "2011": 2 } }, /between 2005 and 2025/);
+    reject({ ...ok, points: { "2011.5": 1, "2012": 2 } }, /between 2005 and 2025/);
+  });
+
+  test("rejects prices that are not positive finite numbers", () => {
+    for (const bad of [-5, 0, "abc", null, Infinity, 1e13]) {
+      reject({ ...ok, points: { "2010": bad, "2011": 2 } }, /positive number|between/);
+    }
+  });
+
+  test("needs at least two priced years", () => {
+    reject({ ...ok, points: { "2010": 100 } }, /at least two/);
+    reject({ ...ok, points: {} }, /at least two/);
+  });
+
+  test("rejects an over-long field", () => {
+    reject({ ...ok, name: "x".repeat(81) }, /80 characters/);
+  });
+
+  test("accepts the array form of points as well as the object form", () => {
+    const v = validate(db, { ...ok, points: [{ year: 2010, price: 1 }, { year: 2012, price: 2 }] });
+    expect(v.points.length).toBe(2);
+  });
+});
+
+describe("insert and delete", () => {
+  test("insert makes the model visible to the read path with metrics computed", () => {
+    const { id } = insertItem(db, ok);
+    const found = analyseItems(db).find((i) => i.id === id)!;
+    expect(found).toBeDefined();
+    expect(found.origin).toBe("user");
+    expect(found.firstYear).toBe(2018);
+    expect(found.lastYear).toBe(2024);
+    expect(found.benchmarkId).toBe("sp500");
+    expect(found.cagrPct).toBeCloseTo((Math.pow(17000 / 12000, 1 / 6) - 1) * 100, 6);
+  });
+
+  test("a second model of the same name gets its own id rather than overwriting", () => {
+    const a = insertItem(db, { ...ok, name: "Duplicate Name" });
+    const b = insertItem(db, { ...ok, name: "Duplicate Name" });
+    expect(a.id).not.toBe(b.id);
+    expect(analyseItems(db).filter((i) => i.name === "Duplicate Name").length).toBe(2);
+  });
+
+  test("retail submissions are benchmarked against inflation, not the index", () => {
+    const { id } = insertItem(db, { ...ok, name: "Retail Thing", kind: "retail" });
+    expect(analyseItems(db).find((i) => i.id === id)!.benchmarkId).toBe("cpi");
+  });
+
+  test("delete removes a user model and its prices", () => {
+    const { id } = insertItem(db, { ...ok, name: "Temporary" });
+    expect(deleteItem(db, id)).toBe(true);
+    expect(analyseItems(db).some((i) => i.id === id)).toBe(false);
+    expect(db.query("SELECT COUNT(*) n FROM item_prices WHERE item_id = ?").get(id).n).toBe(0);
+  });
+
+  test("the shipped catalogue cannot be deleted", () => {
+    expect(deleteItem(db, "daytona-116500ln")).toBe(false);
+    expect(analyseItems(db).some((i) => i.id === "daytona-116500ln")).toBe(true);
+  });
+
+  test("deleting something that does not exist is a no-op, not a crash", () => {
+    expect(deleteItem(db, "no-such-id")).toBe(false);
+  });
+});
+
+describe("seed items", () => {
+  test("every shipped item has at least two anchors and lands inside the year range", () => {
+    for (const i of analyseItems(db).filter((x) => x.origin === "seed")) {
+      expect(i.points.length).toBeGreaterThanOrEqual(2);
+      expect(i.firstYear).toBeGreaterThanOrEqual(2005);
+      expect(i.lastYear).toBeLessThanOrEqual(2025);
+      expect(i.lastYear).toBeGreaterThan(i.firstYear);
+    }
+  });
+
+  test("retail items benchmark to CPI and resale items to the S&P", () => {
+    for (const i of analyseItems(db)) {
+      expect(i.benchmarkId).toBe(i.kind === "retail" ? "cpi" : "sp500");
+    }
+  });
+
+  test("a window that excludes an item's anchors drops it rather than reporting nonsense", () => {
+    const narrow = analyseItems(db, { from: 2005, to: 2006 });
+    expect(narrow.every((i) => i.points.length >= 2)).toBe(true);
+    expect(narrow.length).toBeLessThan(analyseItems(db).length);
+  });
+});

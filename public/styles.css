@@ -167,3 +167,32 @@ tr.item-row[aria-selected="true"] td { background: var(--plane); }
 .detail .caveat { color: var(--muted); font-size: 12px; margin-top: 10px; }
 .anchor-dot { fill: var(--surface-1); stroke-width: 2; }
 .empty { color: var(--muted); padding: 18px 0; }
+
+/* ---- add-a-model form ---- */
+#addBox { margin-top: 20px; }
+#addBox summary { font-weight: 600; color: var(--text-primary); }
+.addform { margin-top: 16px; display: flex; flex-direction: column; gap: 12px; }
+.addform label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .06em; }
+.addform input, .addform select {
+  font: inherit; font-size: 14px; text-transform: none; letter-spacing: 0; color: var(--text-primary);
+  background: var(--surface-1); border: 1px solid var(--axis); border-radius: 7px; padding: 7px 9px;
+}
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+.addform label.full { width: 100%; }
+fieldset.points { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px 14px; margin: 4px 0 0; }
+fieldset.points legend { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); padding: 0 6px; }
+.point-row { display: flex; gap: 10px; align-items: end; margin-bottom: 8px; }
+.point-row label { flex: 0 0 110px; }
+.point-row label.price { flex: 1 1 160px; }
+.point-row button { background: transparent; border: 1px solid var(--axis); color: var(--text-secondary);
+  border-radius: 7px; padding: 8px 11px; cursor: pointer; font: inherit; }
+.formfoot { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+#addSubmit { font: inherit; font-weight: 600; padding: 9px 20px; border: 0; border-radius: 8px;
+  background: var(--text-primary); color: var(--surface-1); cursor: pointer; }
+#addSubmit[disabled] { opacity: .5; cursor: not-allowed; }
+#addMsg { font-size: 13px; }
+#addMsg.err { color: var(--bad); }
+#addMsg.ok { color: var(--good); }
+.delete-link { background: none; border: 0; color: var(--muted); font: inherit; font-size: 12px;
+  cursor: pointer; text-decoration: underline; padding: 0; }
