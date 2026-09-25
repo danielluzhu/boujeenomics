@@ -167,6 +167,8 @@ export interface ItemMetrics {
   edgePct: number;
   /** What the same money would have become in the benchmark over the same span. */
   benchmarkValue: number;
+  /** 'seed' for the shipped catalogue, 'user' for models added through the app. */
+  origin: string;
 }
 
 /** Compound annual growth of a stored annual-return series between two years. */
@@ -185,10 +187,11 @@ export function analyseItems(
 ): ItemMetrics[] {
   const rows = db.query<
     { id: string; name: string; ref: string; brand: string; category_id: string; categoryName: string;
-      kind: "retail" | "resale"; blurb: string; source: string; confidence: string; caveat: string },
+      kind: "retail" | "resale"; blurb: string; source: string; confidence: string; caveat: string;
+      origin: string },
     []
   >(`SELECT i.id, i.name, i.ref, i.brand, i.category_id, a.name categoryName,
-             i.kind, i.blurb, i.source, i.confidence, i.caveat
+             i.kind, i.blurb, i.source, i.confidence, i.caveat, i.origin
       FROM items i JOIN assets a ON a.id = i.category_id ORDER BY i.ord`).all();
 
   const out: ItemMetrics[] = [];
@@ -214,6 +217,7 @@ export function analyseItems(
       id: r.id, name: r.name, ref: r.ref, brand: r.brand,
       category: r.category_id, categoryName: r.categoryName, kind: r.kind,
       blurb: r.blurb, source: r.source, confidence: r.confidence, caveat: r.caveat,
+      origin: r.origin,
       points, firstYear, lastYear, firstPrice, lastPrice, multiple, cagrPct,
       benchmarkId,
       benchmarkName: benchmarkId === "cpi" ? "US inflation" : "S&P 500",

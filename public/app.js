@@ -74,6 +74,7 @@ function applyTheme(v) {
   // Storage can throw in a private window; the theme still applies for this page view.
   try { v === "system" ? localStorage.removeItem("boujee-theme") : localStorage.setItem("boujee-theme", v); } catch (e) {}
   drawGrowth(); drawBars(); // series colours are CSS vars resolved at draw time
+  if (itemState.all.length) renderItems();
 }
 
 function seg(sel, fn) {
@@ -408,7 +409,219 @@ function renderAll() {
     `Solid lines are traditional assets, dashed are luxury. Pick up to ${MAX_SERIES}.`;
 }
 let t;
-addEventListener("resize", () => { clearTimeout(t); t = setTimeout(() => { drawGrowth(); drawBars(); }, 120); });
+addEventListener("resize", () => {
+  clearTimeout(t);
+  t = setTimeout(() => { drawGrowth(); drawBars(); if (itemState.all.length) renderItems(); }, 120);
+});
+
+/* ============================================================== items view */
+// Item fields can be user-supplied, so everything interpolated into markup is escaped.
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+const ITEM_COLOR = { resale: "var(--s1)", retail: "var(--s2)" };
+const itemState = { kind: "resale", cat: "", query: "", selected: null, all: [] };
+
+async function loadItems() {
+  itemState.all = await (await fetch("/api/items")).json();
+  const sel = $("#catSel");
+  const cats = [...new Map(itemState.all.map((i) => [i.category, i.categoryName])).entries()];
+  sel.innerHTML = `<option value="">All categories</option>` +
+    cats.map(([id, n]) => `<option value="${esc(id)}">${esc(n)}</option>`).join("");
+  sel.onchange = () => { itemState.cat = sel.value; renderItems(); };
+  seg("#kindSeg", (v) => { itemState.kind = v; itemState.selected = null; renderItems(); });
+  renderItems();
+}
+
+function visibleItems() {
+  const q = itemState.query.trim().toLowerCase();
+  return itemState.all
+    .filter((i) => i.kind === itemState.kind)
+    .filter((i) => !itemState.cat || i.category === itemState.cat)
+    .filter((i) => !q || [i.name, i.brand, i.ref, i.categoryName].join(" ").toLowerCase().includes(q))
+    .sort((a, b) => b.edgePct - a.edgePct);
+}
+
+function renderItems() {
+  const rows = visibleItems();
+  const retail = itemState.kind === "retail";
+  $("#itemHint").textContent = retail
+    ? "What the boutique charges. A rising retail price is what the object costs you, not what you earn — so it is measured against inflation."
+    : "What you could sell it for. This is the investment question, so it is measured against the S&P 500 over each item's own span.";
+  $("#itemLegend").innerHTML =
+    `<span style="--c:${ITEM_COLOR[itemState.kind]}"><i style="border-top-width:0;width:11px;height:11px;border-radius:50%;background:var(--c)"></i>The object</span>` +
+    `<span><i class="ring"></i>${retail ? "US inflation" : "S&amp;P 500"}, same years</span>` +
+    `<span style="color:var(--muted)">Labels show the gap in percentage points per year.</span>`;
+  drawDumbbell(rows);
+  renderItemTable(rows);
+  renderItemDetail();
+}
+
+function drawDumbbell(rows) {
+  const svg = $("#dumbbell");
+  svg.innerHTML = "";
+  if (!rows.length) { svg.setAttribute("height", 0); return; }
+
+  const W = Math.max(svg.clientWidth || 640, 620);
+  const rowH = 34, m = { t: 10, r: 108, b: 26, l: 210 };
+  const H = m.t + rows.length * rowH + m.b;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.setAttribute("height", H);
+  const iw = W - m.l - m.r;
+
+  const vals = rows.flatMap((r) => [r.cagrPct, r.benchmarkCagrPct]);
+  const lo = Math.min(0, ...vals), hi = Math.max(...vals) * 1.04;
+  const x = (v) => m.l + ((v - lo) / (hi - lo || 1)) * iw;
+
+  const ticks = linTicks(lo, hi, 5);
+  for (const v of ticks) {
+    svg.append(el("line", { class: "grid-line", x1: x(v), x2: x(v), y1: m.t, y2: m.t + rows.length * rowH }));
+    const t = el("text", { class: "tick", x: x(v), y: H - 8, "text-anchor": "middle" });
+    t.textContent = v.toFixed(ticks.decimals) + "%";
+    svg.append(t);
+  }
+
+  const tip = $("#tip");
+  rows.forEach((r, i) => {
+    const cy = m.t + i * rowH + rowH / 2;
+    const g = el("g");
+    const lab = el("text", { class: "tick", x: m.l - 12, y: cy + 4, "text-anchor": "end", fill: "var(--text-secondary)" });
+    lab.textContent = r.name.length > 26 ? r.name.slice(0, 25) + "…" : r.name;
+    g.append(lab);
+
+    g.append(el("line", { class: "dumbbell-link", x1: x(r.benchmarkCagrPct), x2: x(r.cagrPct), y1: cy, y2: cy }));
+    g.append(el("circle", { class: "bench-dot", cx: x(r.benchmarkCagrPct), cy, r: 5 }));
+    g.append(el("circle", { cx: x(r.cagrPct), cy, r: 5.5, fill: ITEM_COLOR[r.kind], stroke: "var(--surface-1)", "stroke-width": 2 }));
+
+    const right = Math.max(x(r.cagrPct), x(r.benchmarkCagrPct)) + 10;
+    const v = el("text", { class: "end-label", x: right, y: cy + 4 });
+    v.textContent = `${r.edgePct >= 0 ? "+" : "−"}${Math.abs(r.edgePct).toFixed(1)} pp`;
+    v.setAttribute("fill", Math.abs(r.edgePct) < 0.05 ? "var(--text-primary)" : r.edgePct > 0 ? "var(--good)" : "var(--bad)");
+    g.append(v);
+
+    const hit = el("rect", { x: 0, y: m.t + i * rowH, width: W, height: rowH, fill: "transparent", style: "cursor:pointer" });
+    hit.addEventListener("mousemove", (ev) => {
+      tip.innerHTML = `<h4>${esc(r.brand)} ${esc(r.name)}</h4>
+        <div class="row"><span class="nm">${esc(r.firstYear)}–${esc(r.lastYear)}</span><b>${money(r.firstPrice)} → ${money(r.lastPrice)}</b></div>
+        <div class="row"><span class="nm">The object</span><b>${pct(r.cagrPct)}/yr</b></div>
+        <div class="row"><span class="nm">${esc(r.benchmarkName)}</span><b>${pct(r.benchmarkCagrPct)}/yr</b></div>
+        <div class="row"><span class="nm">Difference</span><b>${r.edgePct >= 0 ? "+" : ""}${r.edgePct.toFixed(1)} pp/yr</b></div>`;
+      tip.classList.add("on");
+      const w = tip.offsetWidth, h = tip.offsetHeight;
+      tip.style.left = Math.min(ev.clientX + 16, innerWidth - w - 8) + "px";
+      tip.style.top = Math.max(8, Math.min(ev.clientY - h / 2, innerHeight - h - 8)) + "px";
+    });
+    hit.addEventListener("mouseleave", () => tip.classList.remove("on"));
+    hit.addEventListener("click", () => { itemState.selected = r.id; renderItems(); });
+    g.append(hit);
+    svg.append(g);
+  });
+}
+
+const CONF_LABEL = { high: "sourced", medium: "reported", estimated: "estimated" };
+
+function renderItemTable(rows) {
+  const t = $("#itemTable");
+  if (!rows.length) {
+    t.innerHTML = `<tbody><tr><td class="empty">No models match. Add one below.</td></tr></tbody>`;
+    return;
+  }
+  const benchHead = itemState.kind === "retail" ? "Inflation" : "S&amp;P 500";
+  t.innerHTML =
+    `<thead><tr><th>Model</th><th>Years</th><th>Then</th><th>Now</th><th>Per year</th>
+      <th>${benchHead}</th><th>Difference</th><th>Data</th></tr></thead><tbody>` +
+    rows.map((r) => `
+      <tr class="item-row" data-id="${esc(r.id)}" aria-selected="${itemState.selected === r.id}">
+        <td><span class="swatch" style="--c:${ITEM_COLOR[r.kind]}"></span>${esc(r.name)}
+            <div class="ref">${esc(r.ref)}</div></td>
+        <td class="num">${esc(r.firstYear)}–${esc(r.lastYear)}</td>
+        <td class="num">${money(r.firstPrice)}</td>
+        <td class="num">${money(r.lastPrice)}</td>
+        <td class="num">${signed(r.cagrPct)}</td>
+        <td class="num">${pct(r.benchmarkCagrPct)}</td>
+        <td class="num">${signed(r.edgePct)}</td>
+        <td><span class="badge ${r.confidence === "high" ? "" : "est"}">${CONF_LABEL[r.confidence] ?? esc(r.confidence)}</span>
+            ${r.origin === "user" ? `<span class="badge">added here</span>` : ""}</td>
+      </tr>`).join("") + "</tbody>";
+  t.querySelectorAll("tr.item-row").forEach((tr) => tr.onclick = () => {
+    itemState.selected = itemState.selected === tr.dataset.id ? null : tr.dataset.id;
+    renderItems();
+  });
+}
+
+function renderItemDetail() {
+  const box = $("#itemDetail");
+  const r = itemState.all.find((i) => i.id === itemState.selected);
+  if (!r) { box.innerHTML = ""; return; }
+  box.innerHTML = `<div class="detail">
+      <h3>${esc(r.name)}</h3>
+      <p class="meta">${esc(r.ref)} · ${esc(r.categoryName)} · ${r.kind === "retail" ? "retail price" : "resale value"}
+        · <span class="badge ${r.confidence === "high" ? "" : "est"}">${CONF_LABEL[r.confidence] ?? esc(r.confidence)}</span></p>
+      ${r.blurb ? `<p style="margin:0 0 12px">${esc(r.blurb)}</p>` : ""}
+      <div class="chart-scroll"><svg id="itemPath" class="chart"></svg></div>
+      <p class="caveat"><b>Source:</b> ${esc(r.source)}${r.caveat ? `<br><b>Caveat:</b> ${esc(r.caveat)}` : ""}</p>
+    </div>`;
+  drawItemPath(r);
+}
+
+function drawItemPath(r) {
+  const svg = $("#itemPath");
+  const W = Math.max(svg.clientWidth || 600, 560), H = 240;
+  const m = { t: 16, r: 20, b: 30, l: 72 };
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.setAttribute("height", H);
+  const iw = W - m.l - m.r, ih = H - m.t - m.b;
+
+  const ys = r.points.map((p) => p.year), ps = r.points.map((p) => p.price);
+  const y0 = Math.min(...ys), y1 = Math.max(...ys);
+  // Prices here span four orders of magnitude across items; a wide range needs a log axis.
+  const useLog = Math.max(...ps) / Math.min(...ps) > 40;
+  const lo = Math.min(...ps) * 0.9, hi = Math.max(...ps) * 1.08;
+  const ty = (v) => (useLog ? Math.log10(v) : v);
+  const X = (yr) => m.l + ((yr - y0) / (y1 - y0 || 1)) * iw;
+  const Y = (v) => m.t + ih - ((ty(v) - ty(lo)) / (ty(hi) - ty(lo))) * ih;
+
+  const ticks = useLog ? logTicks(lo, hi) : linTicks(lo, hi, 4);
+  for (const v of ticks) {
+    svg.append(el("line", { class: "grid-line", x1: m.l, x2: m.l + iw, y1: Y(v), y2: Y(v) }));
+    const t = el("text", { class: "tick", x: m.l - 9, y: Y(v) + 4, "text-anchor": "end" });
+    t.textContent = compact(v);
+    svg.append(t);
+  }
+  svg.append(el("line", { class: "axis-line", x1: m.l, x2: m.l + iw, y1: m.t + ih, y2: m.t + ih }));
+
+  svg.append(el("path", {
+    class: "series-line", stroke: ITEM_COLOR[r.kind],
+    d: r.points.map((p, i) => `${i ? "L" : "M"}${X(p.year).toFixed(1)},${Y(p.price).toFixed(1)}`).join(""),
+  }));
+
+  const tip = $("#tip");
+  for (const p of r.points) {
+    const c = el("circle", { class: "anchor-dot", cx: X(p.year), cy: Y(p.price), r: 5, stroke: ITEM_COLOR[r.kind] });
+    const hit = el("circle", { cx: X(p.year), cy: Y(p.price), r: 13, fill: "transparent" });
+    hit.addEventListener("mousemove", (ev) => {
+      tip.innerHTML = `<h4>${esc(p.year)}</h4><div class="row"><span class="nm">Price</span><b>${money(p.price)}</b></div>`;
+      tip.classList.add("on");
+      tip.style.left = Math.min(ev.clientX + 16, innerWidth - tip.offsetWidth - 8) + "px";
+      tip.style.top = Math.max(8, ev.clientY - tip.offsetHeight / 2) + "px";
+    });
+    hit.addEventListener("mouseleave", () => tip.classList.remove("on"));
+    svg.append(c); svg.append(hit);
+  }
+  for (const yr of [y0, y1]) {
+    const t = el("text", { class: "tick", x: X(yr), y: H - 9, "text-anchor": "middle" });
+    t.textContent = yr;
+    svg.append(t);
+  }
+  const note = el("text", { class: "tick", x: m.l, y: m.t - 4, fill: "var(--muted)" });
+  note.textContent = `${r.points.length} priced years · the line between them is interpolation`;
+  svg.append(note);
+}
+
+/* -------------------------------------------------------------------- boot */
+// Last in the file: the items module below declares consts that these calls reach,
+// and a const is not initialised until its declaration is evaluated.
 buildYearSelects();
 renderProvenance();
+loadItems();
 load();
