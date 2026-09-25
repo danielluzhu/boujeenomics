@@ -326,3 +326,60 @@ describe("browsing the whole catalogue", () => {
     expect(seen.size).toBe(total);
   });
 });
+
+describe("filtering by outcome", () => {
+  test("beat and lost partition the set exactly", () => {
+    const base = { kind: "resale" as const, limit: 1 };
+    const all = analyseItems(db, base).total;
+    const beat = analyseItems(db, { ...base, outcome: "beat" }).total;
+    const lost = analyseItems(db, { ...base, outcome: "lost" }).total;
+    expect(beat + lost).toBe(all);
+    expect(beat).toBeGreaterThan(0);
+  });
+
+  test("every item in the beat set actually beat its benchmark", () => {
+    for (const i of analyseItems(db, { outcome: "beat", limit: 500 }).items) {
+      expect(i.edgePct).toBeGreaterThan(0);
+      expect(i.cagrPct).toBeGreaterThan(i.benchmarkCagrPct);
+    }
+  });
+
+  test("every item in the lost set did not", () => {
+    for (const i of analyseItems(db, { outcome: "lost", limit: 500 }).items) {
+      expect(i.edgePct).toBeLessThanOrEqual(0);
+    }
+  });
+
+  test("outcome composes with the other filters", () => {
+    const winners = analyseItems(db, { outcome: "beat", tracked: true, kind: "resale", limit: 100 });
+    expect(winners.total).toBeGreaterThan(0);
+    for (const i of winners.items) {
+      expect(i.confidence).not.toBe("modelled");
+      expect(i.kind).toBe("resale");
+      expect(i.edgePct).toBeGreaterThan(0);
+    }
+  });
+
+  test("the outlier set really does beat the index, and the controls really do not", () => {
+    const by = (id: string) => analyseItems(db, { ids: [id], from: 2005, to: 2025, limit: 1 }).items[0];
+    for (const id of ["karuizawa-cask", "macallan-1926", "mclaren-f1-tracked", "daytona-6239-paul-newman"]) {
+      expect(by(id).edgePct).toBeGreaterThan(0);
+    }
+    // Deliberately included controls: famous multi-baggers that still trail the index.
+    for (const id of ["lespaul-59-tracked", "journe-bleu-tracked", "carrera-rs-27"]) {
+      expect(by(id).edgePct).toBeLessThan(0);
+    }
+  });
+
+  test("paging the winners never repeats or drops one", () => {
+    const total = analyseItems(db, { outcome: "beat", limit: 1 }).total;
+    const seen = new Set<string>();
+    for (let off = 0; off < total; off += 25) {
+      for (const i of analyseItems(db, { outcome: "beat", limit: 25, offset: off, sort: "name" }).items) {
+        expect(seen.has(i.id)).toBe(false);
+        seen.add(i.id);
+      }
+    }
+    expect(seen.size).toBe(total);
+  });
+});

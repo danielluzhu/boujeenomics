@@ -215,6 +215,9 @@ export interface ItemQuery {
   kind?: "retail" | "resale";
   /** Exact confidence tier, for browsing by how trustworthy a series is. */
   confidence?: string;
+  /** Whether the item beat its benchmark. Applied after the return is computed, so it
+   *  cannot be pushed into SQL. */
+  outcome?: "beat" | "lost";
   /** Only items with a real tracked series — excludes the generated catalogue. */
   tracked?: boolean;
   ids?: string[];
@@ -313,8 +316,11 @@ export function analyseItems(db: Database, q: ItemQuery = {}): ItemPage {
     });
   }
 
-  const dir = q.sort === "name" ? 1 : -1;
-  all.sort((a, b) => {
+  const matched = q.outcome
+    ? all.filter((i) => (q.outcome === "beat" ? i.edgePct > 0 : i.edgePct <= 0))
+    : all;
+
+  matched.sort((a, b) => {
     switch (q.sort) {
       case "name": return a.name.localeCompare(b.name) || a.ref.localeCompare(b.ref);
       case "cagr": return (b.cagrPct - a.cagrPct) * 1;
@@ -322,11 +328,10 @@ export function analyseItems(db: Database, q: ItemQuery = {}): ItemPage {
       default: return (b.edgePct - a.edgePct) * 1;
     }
   });
-  if (q.sort === "name") { /* already ascending */ } else void dir;
 
   const offset = Math.max(0, q.offset ?? 0);
-  const limit = q.limit ?? all.length;
-  return { total: all.length, items: all.slice(offset, offset + limit) };
+  const limit = q.limit ?? matched.length;
+  return { total: matched.length, items: matched.slice(offset, offset + limit) };
 }
 
 /** Headline counts, over tracked items only — the generated catalogue is excluded. */

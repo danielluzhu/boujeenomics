@@ -115,6 +115,8 @@ const server = Bun.serve({
         category: q.get("category") || undefined,
         brand: q.get("brand") || undefined,
         confidence: q.get("confidence") || undefined,
+        outcome: q.get("outcome") === "beat" || q.get("outcome") === "lost"
+          ? (q.get("outcome") as "beat" | "lost") : undefined,
         kind: kind === "retail" || kind === "resale" ? kind : undefined,
         tracked: q.get("tracked") === "1",
         ids: q.get("ids") ? q.get("ids")!.split(",").filter(Boolean).slice(0, 24) : undefined,
