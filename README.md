@@ -144,7 +144,7 @@ src/db.ts           schema, seed and migration (bun:sqlite)
 src/analytics.ts    index building, CAGR, real adjustment, drawdown, volatility, item benchmarks
 src/items-write.ts  validation and persistence for user-submitted models
 src/server.ts       Bun.serve — the API and static files
-public/             the frontend; charts are hand-rolled SVG, no chart library
+public/             the frontend; charts and the favicon are hand-written SVG, no libraries
 test/               41 tests over the return maths, the write path and interpolation
 ```
 
