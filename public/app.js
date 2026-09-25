@@ -58,11 +58,14 @@ function buildYearSelects() {
   const from = $("#from"), to = $("#to");
   for (let y = 2005; y <= 2024; y++) from.append(new Option(y, y, false, y === state.from));
   for (let y = 2006; y <= 2025; y++) to.append(new Option(y === 2025 ? "2025 (provisional)" : y, y, false, y === state.to));
+  $("#amount").value = state.amount;
+  for (const b of $("#realSeg").children) b.setAttribute("aria-pressed", String((b.dataset.v === "1") === state.real));
+  for (const b of $("#scaleSeg").children) b.setAttribute("aria-pressed", String(b.dataset.v === state.scale));
   from.onchange = () => { state.from = +from.value; if (state.to <= state.from) { state.to = state.from + 1; to.value = state.to; } load(); };
   to.onchange = () => { state.to = +to.value; if (state.to <= state.from) { state.from = state.to - 1; from.value = state.from; } load(); };
   $("#amount").onchange = (e) => { state.amount = Math.max(1, +e.target.value || 10000); load(); };
   seg("#realSeg", (v) => { state.real = v === "1"; load(); });
-  seg("#scaleSeg", (v) => { state.scale = v; drawGrowth(); });
+  seg("#scaleSeg", (v) => { state.scale = v; drawGrowth(); writeUrl(); });
   seg("#themeSeg", applyTheme);
 
   // Reflect the theme already stamped by the pre-paint script.
@@ -74,6 +77,7 @@ function applyTheme(v) {
   else document.documentElement.setAttribute("data-theme", v);
   // Storage can throw in a private window; the theme still applies for this page view.
   try { v === "system" ? localStorage.removeItem("boujee-theme") : localStorage.setItem("boujee-theme", v); } catch (e) {}
+  writeUrl();
   drawGrowth(); drawBars(); // series colours are CSS vars resolved at draw time
   if (itemState.all.length) renderItems();
 }
@@ -105,7 +109,7 @@ function renderPicker() {
     b.onclick = () => {
       if (on) { if (totalPicked() > 1) state.picked.delete(a.id); }
       else if (totalPicked() < MAX_SERIES) state.picked.add(a.id);
-      renderPicker(); drawGrowth();
+      renderPicker(); drawGrowth(); writeUrl();
     };
     box.append(b);
   }
@@ -156,7 +160,7 @@ function renderObjectPicker() {
   sel.onchange = () => {
     if (sel.value && totalPicked() < MAX_SERIES) state.pickedItems.add(sel.value);
     sel.value = "";
-    renderPicker(); drawGrowth();
+    renderPicker(); drawGrowth(); writeUrl();
   };
 
   box.innerHTML = "";
@@ -173,7 +177,7 @@ function renderObjectPicker() {
     b.onclick = () => {
       state.pickedItems.delete(id);
       itemSlot.delete(id);          // release the hue for the next object
-      renderPicker(); drawGrowth();
+      renderPicker(); drawGrowth(); writeUrl();
     };
     box.append(b);
   }
@@ -472,28 +476,83 @@ function barPath(x0, x1, y, h, r) {
 }
 
 /* ------------------------------------------------------------ hero + tiles */
+
+/** Luxury categories that beat the index over the selected window. */
+function categoriesBeating(d) {
+  const sp = d.assets.find((a) => a.id === "sp500");
+  const lux = d.assets.filter((a) => a.class === "luxury");
+  return { beat: lux.filter((a) => a.cagrPct > sp.cagrPct).length, of: lux.length, sp };
+}
+
+/** Named resale objects that beat the index over their own span. */
+function objectsBeating() {
+  const resale = itemState.all.filter((i) => i.kind === "resale");
+  return { beat: resale.filter((i) => i.edgePct > 0).length, of: resale.length };
+}
+
 function renderHero() {
   const d = state.data;
+  const cats = categoriesBeating(d);
+  const objs = objectsBeating();
+  const haveObjects = objs.of > 0;
+
+  $("#heroEyebrow").textContent =
+    `${d.from} — ${d.to}${d.real ? " · after inflation" : ""}${d.to >= d.provisionalFrom ? " · 2025 provisional" : ""}`;
+
+  // The headline is the finding, so it has to follow the data rather than sit on top of it.
+  const n = haveObjects ? objs.beat : cats.beat;
+  const of = haveObjects ? objs.of : cats.of;
+  const what = haveObjects ? "" : " luxury categories";
+  $("#heroTitle").textContent =
+    n === 0 ? `Not one of them beat the S&P 500.`
+    : n === of ? `All ${of} of them beat the S&P 500.`
+    : n === 1 ? `Only one${what} beat the S&P 500.`
+    : `Only ${n} of ${of}${what} beat the S&P 500.`;
+
+  $("#heroSub").textContent = haveObjects
+    ? `Handbags, watches, Ferraris, Birkins — ${objs.of} named objects, each priced against the most boring ` +
+      `thing you could have bought instead, over exactly the years its own record covers.` +
+      (objs.beat === 0 ? " Every one of them lost." : "")
+    : `Handbags, watches, jewellery and classic cars, priced against the most boring thing you could ` +
+      `have bought instead.`;
+
+  // The steepest retail climb: what the shop charges, against what money did.
+  const retail = itemState.all.filter((i) => i.kind === "retail")
+    .sort((a, b) => b.edgePct - a.edgePct)[0];
+
+  const stats = [
+    { fig: `${objs.beat}<em> of </em>${objs.of}`, cap: `named objects that beat the S&P 500 over their own years`,
+      show: haveObjects },
+    { fig: `${cats.beat}<em> of </em>${cats.of}`, cap: `luxury categories that beat it over ${d.from}–${d.to}`, show: true },
+    retail ? {
+      fig: `${retail.multiple.toFixed(1)}<em>×</em>`,
+      cap: `what the price of a ${retail.name} did between ${retail.firstYear} and ${retail.lastYear}, ` +
+           `while general prices rose ` +
+           `${(Math.pow(1 + retail.benchmarkCagrPct / 100, retail.lastYear - retail.firstYear)).toFixed(1)}×`,
+      show: true,
+    } : null,
+  ].filter((x) => x && x.show);
+
+  $("#heroStats").innerHTML = stats.map((s) =>
+    `<div class="hstat"><div class="fig">${s.fig}</div><div class="cap">${esc(s.cap)}</div></div>`).join("");
+
+  // Pull quote: the sharpest single sentence available for the current window.
+  const pull = $("#pullText");
+  if (retail) {
+    pull.innerHTML = `A ${esc(retail.name)} rose <b>${pct(retail.cagrPct)} a year</b> while inflation ran ` +
+      `${pct(retail.benchmarkCagrPct)}. That is not a return — it is the price of admission going up.`;
+  } else {
+    pull.innerHTML = `The window you choose decides the answer more than the asset does.`;
+  }
+
   const ranked = [...d.assets].sort((a, b) => b.cagrPct - a.cagrPct);
-  const lux = ranked.filter((a) => a.class === "luxury");
-  const sp = d.assets.find((a) => a.id === "sp500");
-  const topLux = lux[0];
-  const beat = lux.filter((a) => a.cagrPct > sp.cagrPct).length;
-
-  $("#heroFig").textContent = `${beat} of ${lux.length}`;
-  $("#heroCap").innerHTML =
-    `luxury categories beat the S&P 500 over ${d.from}–${d.to}${state.real ? ", after inflation" : ""}. ` +
-    `The best was <b>${topLux.name}</b> at ${pct(topLux.cagrPct)} a year; the S&P managed ${pct(sp.cagrPct)}.`;
-
   const winner = ranked[0], loser = ranked.at(-1);
   $("#tiles").innerHTML = [
-    ["Best overall", winner.name, `${money(winner.values.at(-1))} from ${money(state.amount)}`],
-    ["Worst overall", loser.name, `${money(loser.values.at(-1))} from ${money(state.amount)}`],
-    ["Steadiest", [...d.assets].sort((a, b) => a.volatilityPct - b.volatilityPct)[0].name,
-      `lowest year-to-year swing`],
-    [state.real ? "Inflation" : "Inflation over window", pct(d.cpi.cumulativePct, 0),
-      `${pct(d.cpi.cagrPct)} a year`],
-  ].map(([k, v, s]) => `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="d">${s}</div></div>`).join("");
+    ["Best category", winner.name, `${money(winner.values.at(-1))} from ${money(state.amount)}`],
+    ["Worst category", loser.name, `${money(loser.values.at(-1))} from ${money(state.amount)}`],
+    ["Steadiest", [...d.assets].sort((a, b) => a.volatilityPct - b.volatilityPct)[0].name, `lowest year-to-year swing`],
+    ["Inflation", pct(d.cpi.cumulativePct, 0), `${pct(d.cpi.cagrPct)} a year`],
+  ].map(([k, v, s]) => `<div class="tile"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div><div class="d">${esc(s)}</div></div>`).join("");
 }
 
 /* ------------------------------------------------------------------ table */
@@ -555,6 +614,7 @@ async function renderProvenance() {
 
 /* -------------------------------------------------------------------- boot */
 function renderAll() {
+  writeUrl();
   renderHero(); renderPicker(); drawGrowth(); drawBars(); renderTable();
   $("#growthHint").textContent =
     `${state.real ? "Inflation-adjusted" : "Nominal"} value of ${money(state.amount)} invested at the start of ${state.data.from}. ` +
@@ -577,6 +637,9 @@ const itemState = { kind: "resale", cat: "", query: "", selected: null, all: [] 
 
 async function loadItems() {
   itemState.all = await (await fetch("/api/items")).json();
+  for (const id of [...state.pickedItems]) {
+    if (!itemState.all.some((i) => i.id === id)) state.pickedItems.delete(id);
+  }
   const sel = $("#catSel");
   const cats = [...new Map(itemState.all.map((i) => [i.category, i.categoryName])).entries()];
   sel.innerHTML = `<option value="">All categories</option>` +
@@ -584,7 +647,7 @@ async function loadItems() {
   sel.onchange = () => { itemState.cat = sel.value; renderItems(); };
   seg("#kindSeg", (v) => { itemState.kind = v; itemState.selected = null; renderItems(); });
   renderItems();
-  if (state.data) renderPicker();   // the analysis may have landed first, or not
+  if (state.data) { renderHero(); renderPicker(); drawGrowth(); }  // hero quotes item data
 }
 
 function visibleItems() {
@@ -781,7 +844,9 @@ function drawItemPath(r) {
 /* -------------------------------------------------------------------- boot */
 // Last in the file: the items module below declares consts that these calls reach,
 // and a const is not initialised until its declaration is evaluated.
+readUrl();
 buildYearSelects();
+wireShare();
 renderProvenance();
 wireSearch();
 wireAddForm();
@@ -890,4 +955,76 @@ async function removeItem(id, name) {
   itemSlot.delete(id);
   renderItems();
   if (state.data) { renderPicker(); drawGrowth(); }
+}
+
+/* ------------------------------------------------------- shareable state */
+// Everything that changes what you are looking at lives in the URL, so a link
+// carries the exact comparison rather than just the site.
+
+function writeUrl() {
+  if (!state.data) return;
+  const q = new URLSearchParams();
+  if (state.from !== 2005) q.set("from", state.from);
+  if (state.to !== 2024) q.set("to", state.to);
+  if (state.amount !== 10000) q.set("amount", state.amount);
+  if (state.real) q.set("real", "1");
+  if (state.scale !== "lin") q.set("scale", state.scale);
+  const defaults = ["sp500", "gold", "housing", "cash", "whisky", "watches"].sort().join(",");
+  const picked = [...state.picked].sort().join(",");
+  if (picked !== defaults) q.set("a", picked);
+  if (state.pickedItems.size) q.set("o", [...state.pickedItems].join(","));
+  const theme = document.documentElement.getAttribute("data-theme");
+  if (theme) q.set("theme", theme);
+  const qs = q.toString();
+  history.replaceState(null, "", qs ? `?${qs}${location.hash}` : location.pathname + location.hash);
+}
+
+/** Apply ?from=…&a=…&o=… before the first fetch, so the page opens on the shared view. */
+function readUrl() {
+  const q = new URLSearchParams(location.search);
+  const int = (k, lo, hi, dflt) => {
+    const n = Number(q.get(k));
+    return q.has(k) && Number.isFinite(n) && n >= lo && n <= hi ? Math.trunc(n) : dflt;
+  };
+  state.from = int("from", 2005, 2024, 2005);
+  state.to = int("to", 2006, 2025, 2024);
+  if (state.to <= state.from) state.to = Math.min(2025, state.from + 1);
+  state.amount = int("amount", 1, 1e9, 10000);
+  state.real = q.get("real") === "1";
+  state.scale = q.get("scale") === "log" ? "log" : "lin";
+  if (q.has("a")) {
+    const ids = q.get("a").split(",").filter(Boolean).slice(0, MAX_SERIES);
+    if (ids.length) state.picked = new Set(ids);
+  }
+  if (q.has("o")) {
+    // Validated against the catalogue once items load; unknown ids are dropped there.
+    for (const id of q.get("o").split(",").filter(Boolean).slice(0, MAX_SERIES)) state.pickedItems.add(id);
+  }
+}
+
+function toast(msg) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.classList.add("on");
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.classList.remove("on"), 2200);
+}
+
+function wireShare() {
+  $("#shareBtn").onclick = async () => {
+    writeUrl();
+    const url = location.href;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast("Link copied — it opens on this exact comparison");
+    } catch {
+      // Clipboard is blocked without a user gesture in some browsers, and over plain http.
+      const ta = document.createElement("textarea");
+      ta.value = url; ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.append(ta); ta.select();
+      try { document.execCommand("copy"); toast("Link copied"); }
+      catch { toast("Copy failed — the link is in your address bar"); }
+      ta.remove();
+    }
+  };
 }

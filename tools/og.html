@@ -1,0 +1,57 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>og</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body { width: 1200px; height: 630px; overflow: hidden; }
+  .card {
+    width: 1200px; height: 630px; padding: 62px 68px;
+    background: #14331f;
+    background-image:
+      radial-gradient(120% 90% at 84% 4%, rgba(217,155,11,.24), transparent 56%),
+      radial-gradient(90% 70% at 2% 100%, rgba(27,175,122,.18), transparent 60%);
+    color: #f4efe2;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; flex-direction: column; justify-content: space-between;
+  }
+  .top { display: flex; align-items: center; gap: 14px; }
+  .top img { width: 40px; height: 40px; border-radius: 10px; display: block; }
+  .top span { font-family: "Instrument Serif", Georgia, serif; font-size: 30px; }
+  .eyebrow { font-size: 15px; letter-spacing: .18em; text-transform: uppercase;
+             color: rgba(244,239,226,.6); font-weight: 650; margin-bottom: 18px; }
+  h1 { font-family: "Instrument Serif", Georgia, serif; font-weight: 400;
+       font-size: 92px; line-height: .95; letter-spacing: -.02em; max-width: 17ch; }
+  .sub { font-size: 21px; line-height: 1.45; color: rgba(244,239,226,.76); margin-top: 22px; max-width: 46ch; }
+  .stats { display: flex; gap: 0; border: 1px solid rgba(244,239,226,.2); border-radius: 14px; overflow: hidden; }
+  .st { flex: 1; padding: 20px 24px; border-right: 1px solid rgba(244,239,226,.2); }
+  .st:last-child { border-right: 0; }
+  .st .fig { font-family: "Instrument Serif", Georgia, serif; font-size: 50px; line-height: 1; }
+  .st .fig em { font-style: italic; color: #eda100; }
+  .st .cap { font-size: 15px; line-height: 1.4; color: rgba(244,239,226,.72); margin-top: 8px; }
+  .url { font-size: 17px; color: rgba(244,239,226,.55); }
+</style>
+<div class="card">
+  <div class="top">
+    <img src="http://localhost:4321/favicon.svg" alt="">
+    <span>Boujeenomics</span>
+  </div>
+
+  <div>
+    <p class="eyebrow">Luxury goods vs. the index · 2005–2025</p>
+    <h1>Not one of them beat the S&amp;P 500.</h1>
+    <p class="sub">Birkins, Daytonas, Ferraris — priced against the most boring
+      thing you could have bought instead.</p>
+  </div>
+
+  <div class="stats">
+    <div class="st"><div class="fig">0<em> of </em>10</div>
+      <div class="cap">named objects that beat the index</div></div>
+    <div class="st"><div class="fig">1<em> of </em>8</div>
+      <div class="cap">luxury categories that beat it</div></div>
+    <div class="st"><div class="fig">7.0<em>×</em></div>
+      <div class="cap">what a Chanel Classic Flap's price did, vs 1.6× inflation</div></div>
+  </div>
+</div>

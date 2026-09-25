@@ -86,6 +86,17 @@ const server = Bun.serve({
     }
 
     const path = url.pathname === "/" ? "/index.html" : url.pathname;
+
+    // Social scrapers need absolute URLs, and the public origin is only knowable per request
+    // (this runs behind a proxy), so the page's origin placeholders are filled in on the way out.
+    if (path === "/index.html") {
+      const proto = req.headers.get("x-forwarded-proto") ?? "http";
+      const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? url.host;
+      const origin = process.env.PUBLIC_ORIGIN ?? `${proto}://${host}`;
+      const html = (await Bun.file("public/index.html").text()).replaceAll("{{ORIGIN}}", origin);
+      return new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } });
+    }
+
     const file = Bun.file(`public${path}`);
     if (await file.exists()) return new Response(file);
     return new Response("Not found", { status: 404 });

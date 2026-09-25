@@ -3,7 +3,7 @@
 Handbags, watches, jewellery and classic cars get sold as investments. This puts them side by side
 with the boring stuff — the S&P 500, US housing, gold and cash — over any window from 2005 to 2025.
 
-![Boujeenomics](docs/screenshot.png)
+![Boujeenomics](docs/hero.png)
 
 ![Objects plotted alongside categories](docs/growth.png)
 
@@ -30,6 +30,18 @@ bun test         # 41 tests
 - **A table** with total return, ending value, return versus cash, volatility, max drawdown, and
   each asset's best and worst year.
 - **Provenance** for every series, because half of them are estimates and you should know which half.
+
+## Sharing a view
+
+Everything that changes what you are looking at lives in the URL — window, amount, inflation
+toggle, scale, which categories and which objects are on the chart, and the theme. **Copy link** in
+the header puts the current comparison on the clipboard, and opening it reproduces that exact view.
+Defaults are left out of the query string, so an untouched page has a clean URL. Unknown object ids
+in a shared link are dropped rather than breaking the page.
+
+`/og.png` is the social card, built from `tools/og.html`. The page's `og:url` and `og:image` are
+absolute, filled in per request from the forwarded host, so they work behind the proxy; set
+`PUBLIC_ORIGIN` to pin them.
 
 ## Two findings worth the whole project
 
