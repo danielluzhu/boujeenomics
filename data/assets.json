@@ -1,0 +1,138 @@
+{
+  "meta": {
+    "baseYear": 2005,
+    "firstReturnYear": 2006,
+    "lastYear": 2025,
+    "provisionalFrom": 2025,
+    "note": "Each asset carries 20 annual total-return percentages for 2006..2025. Index level is rebased so baseYear = 100. Every series is nominal USD; real returns are computed against the CPI series at runtime."
+  },
+  "assets": [
+    {
+      "id": "sp500",
+      "name": "S&P 500",
+      "class": "traditional",
+      "blurb": "Total return, dividends reinvested.",
+      "source": "S&P Dow Jones Indices annual total returns",
+      "confidence": "high",
+      "caveat": "Pre-tax and pre-fee. An index fund tracking it costs roughly 0.03-0.2%/yr.",
+      "returns": [15.79, 5.49, -37.00, 26.46, 15.06, 2.11, 16.00, 32.39, 13.69, 1.38, 11.96, 21.83, -4.38, 31.49, 18.40, 28.71, -18.11, 26.29, 25.02, 17.00]
+    },
+    {
+      "id": "housing",
+      "name": "US Housing",
+      "class": "traditional",
+      "blurb": "S&P CoreLogic Case-Shiller national home price index.",
+      "source": "Case-Shiller U.S. National Home Price Index, year-end levels",
+      "confidence": "high",
+      "caveat": "Price appreciation ONLY. Excludes rent/imputed rent on the upside, and property tax, insurance, maintenance, transaction costs and mortgage interest on the downside. Real-world owner returns differ substantially, in both directions.",
+      "returns": [-0.54, -6.56, -12.28, -2.67, -3.42, -4.96, 5.22, 8.51, 5.23, 6.21, 5.26, 6.11, 5.24, 3.98, 9.09, 19.30, 8.82, 5.41, 4.17, 2.15]
+    },
+    {
+      "id": "gold",
+      "name": "Gold",
+      "class": "traditional",
+      "blurb": "Spot bullion, USD per troy ounce.",
+      "source": "London bullion market, year-end price",
+      "confidence": "high",
+      "caveat": "No yield. Physical holding adds storage/insurance cost; ETFs charge ~0.2-0.4%/yr.",
+      "returns": [23.20, 31.80, 4.44, 25.06, 29.60, 8.58, 8.30, -27.32, -1.74, -10.47, 8.11, 12.65, -0.93, 18.45, 24.62, -4.34, 0.33, 13.85, 26.51, 53.26]
+    },
+    {
+      "id": "cash",
+      "name": "Cash",
+      "class": "traditional",
+      "blurb": "3-month US Treasury bills, rolled annually.",
+      "source": "3-month Treasury bill secondary market rate, annual average",
+      "confidence": "high",
+      "caveat": "The benchmark for 'doing nothing'. Note how badly it loses to CPI in 2021-2023.",
+      "returns": [4.85, 4.48, 1.39, 0.15, 0.14, 0.05, 0.09, 0.06, 0.03, 0.05, 0.32, 0.93, 1.94, 2.06, 0.36, 0.04, 2.02, 5.07, 5.02, 4.20]
+    },
+    {
+      "id": "watches",
+      "name": "Watches",
+      "class": "luxury",
+      "blurb": "Collectible wristwatches - Rolex, Patek Philippe, Audemars Piguet - on the secondary market.",
+      "source": "Reconstructed to track the Knight Frank Luxury Investment Index watch component",
+      "confidence": "estimated",
+      "caveat": "The 2021-22 spike and the 2023-24 give-back are real and well documented; the individual annual figures are my reconstruction, not published values.",
+      "returns": [6, 7, -2, 1, 5, 8, 5, 4, 4, 3, 5, 7, 8, 7, 6, 30, 20, -5, -3, 1]
+    },
+    {
+      "id": "handbags",
+      "name": "Handbags",
+      "class": "luxury",
+      "blurb": "Hermes-led collectible handbags, principally Birkin and Kelly.",
+      "source": "Reconstructed to track the Knight Frank Luxury Investment Index handbag component",
+      "confidence": "estimated",
+      "caveat": "The steadiest luxury category - low drawdowns, modest upside. Annual figures are reconstructed.",
+      "returns": [5, 6, 2, 3, 6, 7, 6, 5, 5, 4, 4, 5, 6, 5, 7, 9, 5, -2, 2, 3]
+    },
+    {
+      "id": "jewellery",
+      "name": "Jewellery",
+      "class": "luxury",
+      "blurb": "Signed period and contemporary jewellery at auction.",
+      "source": "Reconstructed to track the Knight Frank Luxury Investment Index jewellery component",
+      "confidence": "estimated",
+      "caveat": "Annual figures are reconstructed.",
+      "returns": [4, 5, 1, 2, 5, 7, 5, 4, 4, 3, 4, 5, 5, 4, 3, 7, 6, 2, 4, 3]
+    },
+    {
+      "id": "cars",
+      "name": "Classic Cars",
+      "class": "luxury",
+      "blurb": "Blue-chip collectible automobiles at auction.",
+      "source": "Reconstructed to track the Knight Frank Luxury Investment Index classic car component",
+      "confidence": "estimated",
+      "caveat": "The 2010-2015 boom and the flat decade that followed are the real shape. Excludes storage, insurance, maintenance and restoration, which are material for cars specifically.",
+      "returns": [12, 15, 3, -5, 18, 25, 22, 28, 20, 12, -2, -1, 2, -1, 1, 6, 9, 3, -1, 1]
+    },
+    {
+      "id": "art",
+      "name": "Art",
+      "class": "luxury",
+      "blurb": "Fine art at auction, across categories.",
+      "source": "Reconstructed to track the Knight Frank Luxury Investment Index art component",
+      "confidence": "estimated",
+      "caveat": "The sharp 2024 decline is real and widely reported. Auction indices suffer survivorship bias - works that fail to sell often leave the index.",
+      "returns": [20, 18, -12, -8, 12, 10, 3, 8, 9, 4, -2, 6, 9, 2, -5, 13, 11, -1, -18, -3]
+    },
+    {
+      "id": "wine",
+      "name": "Fine Wine",
+      "class": "luxury",
+      "blurb": "Investment-grade Bordeaux, Burgundy and Champagne.",
+      "source": "Reconstructed to track fine wine indices (Liv-ex family) and the Knight Frank wine component",
+      "confidence": "estimated",
+      "caveat": "The 2011 peak, the 2012-14 correction and the 2023-24 slump are real. Annual figures are reconstructed.",
+      "returns": [15, 20, -8, 12, 25, 8, -10, -6, -3, 3, 16, 10, 8, -1, 3, 16, 10, -9, -9, -4]
+    },
+    {
+      "id": "whisky",
+      "name": "Rare Whisky",
+      "class": "luxury",
+      "blurb": "Collectible single malt, principally Macallan and closed distilleries.",
+      "source": "Reconstructed to track rare whisky indices and the Knight Frank whisky component",
+      "confidence": "estimated",
+      "caveat": "The best-performing luxury asset of the 2010s and the worst of 2023-24. A dramatic boom-bust that flatters or damns it entirely depending on your start year - the single clearest argument for the window selector.",
+      "returns": [8, 10, 5, 6, 12, 18, 20, 25, 30, 22, 35, 40, 30, 5, -4, 9, 4, -9, -18, -6]
+    },
+    {
+      "id": "diamonds",
+      "name": "Coloured Diamonds",
+      "class": "luxury",
+      "blurb": "Investment-grade fancy coloured diamonds.",
+      "source": "Reconstructed to track the Knight Frank Luxury Investment Index coloured diamond component",
+      "confidence": "estimated",
+      "caveat": "Famously illiquid and opaquely priced; the low volatility here is partly an artefact of infrequent repricing rather than genuine stability.",
+      "returns": [3, 4, 1, 0, 3, 6, 2, 2, 2, 1, 1, 1, 2, 0, 0, 2, 3, 1, 0, 1]
+    }
+  ],
+  "cpi": {
+    "id": "cpi",
+    "name": "US CPI-U",
+    "source": "Bureau of Labor Statistics, annual average inflation",
+    "confidence": "high",
+    "returns": [3.2, 2.8, 3.8, -0.4, 1.6, 3.2, 2.1, 1.5, 1.6, 0.1, 1.3, 2.1, 2.4, 1.8, 1.2, 4.7, 8.0, 4.1, 2.9, 2.8]
+  }
+}

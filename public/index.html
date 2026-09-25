@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Boujeenomics</title>
+<link rel="stylesheet" href="/styles.css">
+<script>
+  // Runs before first paint: a stored or ?theme= choice stamps the root, otherwise the
+  // OS setting applies through prefers-color-scheme with nothing stamped.
+  (function () {
+    var t = new URLSearchParams(location.search).get("theme");
+    if (!t) { try { t = localStorage.getItem("boujee-theme"); } catch (e) {} }
+    if (t === "dark" || t === "light") document.documentElement.setAttribute("data-theme", t);
+  })();
+</script>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Boujeenomics</h1>
+    <p class="sub">Handbags, watches, jewellery and classic cars are sold as investments. This puts them
+      side by side with the boring stuff — the S&amp;P 500, housing, gold and cash — over a window you choose.</p>
+  </header>
+
+  <section class="card">
+    <div class="controls">
+      <div class="ctl"><label for="from">From</label><select id="from"></select></div>
+      <div class="ctl"><label for="to">To</label><select id="to"></select></div>
+      <div class="ctl"><label for="amount">Invested</label>
+        <input id="amount" type="number" min="1" step="1000" value="10000"></div>
+      <div class="ctl"><label>Adjust for inflation</label>
+        <div class="seg" id="realSeg">
+          <button type="button" data-v="0" aria-pressed="true">Nominal</button>
+          <button type="button" data-v="1" aria-pressed="false">Real</button>
+        </div>
+      </div>
+      <div class="ctl"><label>Scale</label>
+        <div class="seg" id="scaleSeg">
+          <button type="button" data-v="lin" aria-pressed="true">Linear</button>
+          <button type="button" data-v="log" aria-pressed="false">Log</button>
+        </div>
+      </div>
+      <div class="ctl"><label>Theme</label>
+        <div class="seg" id="themeSeg">
+          <button type="button" data-v="system" aria-pressed="true">System</button>
+          <button type="button" data-v="light" aria-pressed="false">Light</button>
+          <button type="button" data-v="dark" aria-pressed="false">Dark</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="hero">
+      <div><div class="hero-fig" id="heroFig">—</div></div>
+      <p class="hero-cap" id="heroCap"></p>
+    </div>
+    <div class="tiles" id="tiles" style="margin-top:18px"></div>
+  </section>
+
+  <section class="card">
+    <h2>Growth of your money</h2>
+    <p class="hint" id="growthHint">Solid lines are traditional assets, dashed are luxury. Pick up to 8.</p>
+    <div class="picker" id="picker"></div>
+    <div class="chart-scroll"><svg id="growth" class="chart" role="img" aria-labelledby="growthHint"></svg></div>
+    <div class="legend" id="growthLegend"></div>
+  </section>
+
+  <section class="card">
+    <h2>Annualised return, every asset</h2>
+    <p class="hint" id="barHint">Compound annual growth rate over the selected window.</p>
+    <div class="chart-scroll"><svg id="bars" class="chart" role="img" aria-labelledby="barHint"></svg></div>
+    <div class="legend">
+      <span style="--c:var(--s1)"><i></i>Traditional</span>
+      <span style="--c:var(--s2)"><i></i>Luxury</span>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>The numbers</h2>
+    <p class="hint">Sortable. Volatility is the standard deviation of annual returns; max drawdown is the
+      deepest peak-to-trough fall within the window.</p>
+    <div class="chart-scroll"><table id="table"></table></div>
+  </section>
+
+  <section class="card">
+    <h2>Where these numbers come from</h2>
+    <p class="hint">Read this before you buy a Birkin.</p>
+    <div id="prov" class="prov"></div>
+  </section>
+
+  <footer>
+    Educational tool, not investment advice. Returns exclude transaction costs, insurance, storage,
+    authentication and tax — all of which weigh far more heavily on physical luxury goods than on an index fund.
+  </footer>
+</div>
+<div class="tooltip" id="tip"></div>
+<script src="/app.js" type="module"></script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "name": "boujeenomics",
+  "version": "0.1.0",
+  "description": "Do luxury goods beat the S&P 500? Tracking bags, watches, jewellery and cars against stocks, housing, gold and cash.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/server.ts",
+    "dev": "bun --watch run src/server.ts",
+    "seed": "bun -e 'import(\"./src/db\").then(m => { m.seed().close(); console.log(\"seeded\"); })'",
+    "test": "bun test"
+  }
+}
