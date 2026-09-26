@@ -1056,7 +1056,7 @@ async function removeItem(id, name) {
 const IX_PAGE = 50;
 const ixState = {
   q: "", cat: "", brand: "", kind: "", conf: "", outcome: "", sort: "name",
-  page: 0, total: 0, rows: [], selected: null, facets: null,
+  page: 0, total: 0, rows: [], selected: null, facets: null, brands: [],
 };
 
 async function ixFetch() {
@@ -1077,23 +1077,87 @@ async function ixFetch() {
   ixState.total = res.total;
 }
 
-/** Brands are re-listed when the category or kind narrows, so the menu never offers a
- *  brand that would return nothing. */
+/** Brands are re-listed when the category or kind narrows, so neither the quick-pick bar
+ *  nor the search box ever offers a brand that would return nothing. */
 async function ixLoadBrands() {
   const q = new URLSearchParams();
   if (ixState.cat) q.set("category", ixState.cat);
   if (ixState.kind) q.set("kind", ixState.kind);
-  const list = await (await fetch("/api/brands?" + q)).json();
-  const sel = $("#ixBrand");
-  const keep = list.some((b) => b.brand === ixState.brand) ? ixState.brand : "";
-  if (keep !== ixState.brand) ixState.brand = "";
-  sel.innerHTML = `<option value="">All brands</option>` +
-    list.map((b) => `<option value="${esc(b.brand)}"${b.brand === keep ? " selected" : ""}>${esc(b.brand)} (${b.n})</option>`).join("");
+  ixState.brands = await (await fetch("/api/brands?" + q)).json();
+
+  // A brand that falls outside the new filter is cleared rather than left selected and empty.
+  if (ixState.brand && !ixState.brands.some((b) => b.brand === ixState.brand)) ixState.brand = "";
+  $("#ixBrand").value = ixState.brand;
+  ixRenderBrandBar();
+}
+
+const BRAND_CHIPS = 12;
+
+function ixRenderBrandBar() {
+  const bar = $("#ixBrandBar");
+  const top = [...ixState.brands].sort((a, b) => b.n - a.n).slice(0, BRAND_CHIPS);
+  // Keep the selected brand visible even when it is not one of the biggest.
+  if (ixState.brand && !top.some((b) => b.brand === ixState.brand)) {
+    const sel = ixState.brands.find((b) => b.brand === ixState.brand);
+    if (sel) top.unshift(sel);
+  }
+
+  bar.innerHTML = `<span class="lbl">Brands</span>` +
+    `<button type="button" class="chip" data-brand="" aria-pressed="${!ixState.brand}">All
+       <span class="n">${ixState.brands.reduce((a, b) => a + b.n, 0).toLocaleString()}</span></button>` +
+    top.map((b) => `<button type="button" class="chip" data-brand="${esc(b.brand)}"
+       aria-pressed="${b.brand === ixState.brand}">${esc(b.brand)} <span class="n">${b.n}</span></button>`).join("") +
+    (ixState.brands.length > top.length
+      ? `<span class="lbl" style="margin-left:2px">+${ixState.brands.length - top.length} more — search above</span>` : "");
+
+  bar.querySelectorAll("button[data-brand]").forEach((b) => b.onclick = () => ixSetBrand(b.dataset.brand));
+}
+
+function ixSetBrand(brand) {
+  ixState.brand = brand;
+  ixState.page = 0;
+  ixState.selected = null;
+  $("#ixBrand").value = brand;
+  ixRenderBrandBar();
+  ixRefresh();
+}
+
+/** Type-ahead over the brand list, for the long tail the quick-pick bar cannot show. */
+function wireBrandSearch() {
+  const box = $("#ixBrand"), results = $("#ixBrandResults");
+  const close = () => { results.hidden = true; results.innerHTML = ""; };
+
+  const run = () => {
+    const q = box.value.trim().toLowerCase();
+    const hits = ixState.brands
+      .filter((b) => b.brand.toLowerCase().includes(q))
+      .slice(0, 12);
+    if (!hits.length) {
+      results.innerHTML = `<div class="r-none">No brand matches “${esc(box.value)}”.</div>`;
+      results.hidden = false;
+      return;
+    }
+    results.innerHTML =
+      (q ? "" : `<button type="button" data-brand="">All brands</button>`) +
+      hits.map((b) => `<button type="button" data-brand="${esc(b.brand)}">${esc(b.brand)}
+         <span class="r-ref">${b.n} item${b.n === 1 ? "" : "s"}</span></button>`).join("");
+    results.hidden = false;
+    results.querySelectorAll("button").forEach((b) => b.onclick = () => { close(); ixSetBrand(b.dataset.brand); });
+  };
+
+  box.addEventListener("input", run);
+  box.addEventListener("focus", run);
+  box.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { box.value = ixState.brand; close(); }
+    if (e.key === "Enter") { e.preventDefault(); const first = results.querySelector("button"); if (first) first.click(); }
+  });
+  document.addEventListener("click", (e) => { if (!e.target.closest("#index .ctl .combo")) close(); });
 }
 
 async function ixRefresh() {
   await ixFetch();
   ixRender();
+  writeUrl();
 }
 
 function ixRender() {
@@ -1117,7 +1181,8 @@ function ixRender() {
     ixState.rows.map((r) => `
       <tr class="item-row" data-id="${esc(r.id)}" aria-selected="${ixState.selected === r.id}">
         <td class="model"><span class="swatch" style="--c:${ITEM_COLOR[r.kind]}"></span>${esc(r.name)}
-            ${r.ref ? `<div class="ref">${esc(r.ref)}</div>` : ""}</td>
+            <div class="ref"><button type="button" class="brand-link" data-brand="${esc(r.brand)}"
+              title="Show only ${esc(r.brand)}">${esc(r.brand)}</button>${r.ref ? " · " + esc(r.ref) : ""}</div></td>
         <td>${esc(r.categoryName)}</td>
         <td>${r.kind === "retail" ? "Retail" : "Resale"}</td>
         <td class="num">${esc(r.firstYear)}–${esc(r.lastYear)}</td>
@@ -1132,6 +1197,12 @@ function ixRender() {
   t.querySelectorAll("tr.item-row").forEach((tr) => tr.onclick = () => {
     ixState.selected = ixState.selected === tr.dataset.id ? null : tr.dataset.id;
     ixRender();
+  });
+  // Clicking the brand filters instead of opening the row it sits in.
+  t.querySelectorAll("button.brand-link").forEach((b) => b.onclick = (e) => {
+    e.stopPropagation();
+    ixSetBrand(b.dataset.brand);
+    $("#index").scrollIntoView({ behavior: "smooth", block: "start" });
   });
 
   ixRenderPager();
@@ -1194,9 +1265,17 @@ function ixRenderPager() {
 
 async function wireIndex() {
   ixState.facets = await (await fetch("/api/facets")).json();
+  wireBrandSearch();
   $("#ixCat").innerHTML = `<option value="">All categories</option>` +
     ixState.facets.byCategory.map((c) => `<option value="${esc(c.id)}">${esc(c.name)} (${c.n})</option>`).join("");
   await ixLoadBrands();
+
+  $("#ixCat").value = ixState.cat;
+  $("#ixKind").value = ixState.kind;
+  $("#ixConf").value = ixState.conf;
+  $("#ixOutcome").value = ixState.outcome;
+  $("#ixSort").value = ixState.sort;
+  $("#ixSearch").value = ixState.q;
 
   $("#indexHint").innerHTML =
     `Every model in the database — <b>${ixState.facets.total.toLocaleString()}</b> of them, across
@@ -1206,7 +1285,6 @@ async function wireIndex() {
   const reset = () => { ixState.page = 0; ixState.selected = null; };
   $("#ixCat").onchange = async (e) => { ixState.cat = e.target.value; reset(); await ixLoadBrands(); ixRefresh(); };
   $("#ixKind").onchange = async (e) => { ixState.kind = e.target.value; reset(); await ixLoadBrands(); ixRefresh(); };
-  $("#ixBrand").onchange = (e) => { ixState.brand = e.target.value; reset(); ixRefresh(); };
   $("#ixConf").onchange = (e) => { ixState.conf = e.target.value; reset(); ixRefresh(); };
   $("#ixOutcome").onchange = (e) => { ixState.outcome = e.target.value; reset(); ixRefresh(); };
   $("#ixSort").onchange = (e) => { ixState.sort = e.target.value; reset(); ixRefresh(); };
@@ -1233,6 +1311,16 @@ function writeUrl() {
   const picked = [...state.picked].sort().join(",");
   if (picked !== defaults) q.set("a", picked);
   if (state.pickedItems.size) q.set("o", [...state.pickedItems].join(","));
+  // Index filters travel too, so "every Rolex that beat the index" is a link.
+  if (ixState.brand) q.set("b", ixState.brand);
+  if (ixState.cat) q.set("cat", ixState.cat);
+  if (ixState.kind) q.set("kind", ixState.kind);
+  if (ixState.conf) q.set("data", ixState.conf);
+  if (ixState.outcome) q.set("out", ixState.outcome);
+  if (ixState.sort !== "name") q.set("sort", ixState.sort);
+  if (ixState.q.trim()) q.set("q", ixState.q.trim());
+  if (ixState.page) q.set("page", ixState.page + 1);
+
   const theme = document.documentElement.getAttribute("data-theme");
   if (theme) q.set("theme", theme);
   const qs = q.toString();
@@ -1260,6 +1348,17 @@ function readUrl() {
     // Validated against the catalogue once items load; unknown ids are dropped there.
     for (const id of q.get("o").split(",").filter(Boolean).slice(0, MAX_SERIES)) state.pickedItems.add(id);
   }
+
+  // Index filters. A brand or category the database does not know is dropped in
+  // ixLoadBrands / by the API returning nothing, rather than wedging the view.
+  ixState.brand = (q.get("b") ?? "").slice(0, 80);
+  ixState.cat = (q.get("cat") ?? "").slice(0, 40);
+  ixState.kind = q.get("kind") === "retail" || q.get("kind") === "resale" ? q.get("kind") : "";
+  ixState.conf = ["tracked", "modelled", "medium", "estimated", "high"].includes(q.get("data")) ? q.get("data") : "";
+  ixState.outcome = q.get("out") === "beat" || q.get("out") === "lost" ? q.get("out") : "";
+  ixState.sort = ["name", "edge", "cagr", "price"].includes(q.get("sort")) ? q.get("sort") : "name";
+  ixState.q = (q.get("q") ?? "").slice(0, 120);
+  ixState.page = Math.max(0, (int("page", 1, 10000, 1) ?? 1) - 1);
 }
 
 function toast(msg) {

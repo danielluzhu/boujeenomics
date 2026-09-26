@@ -204,7 +204,11 @@
       <div class="ctl"><label for="ixCat">Category</label>
         <select id="ixCat"><option value="">All</option></select></div>
       <div class="ctl"><label for="ixBrand">Brand</label>
-        <select id="ixBrand"><option value="">All brands</option></select></div>
+        <div class="combo">
+          <input id="ixBrand" type="search" autocomplete="off" placeholder="All brands">
+          <div class="combo-results" id="ixBrandResults" hidden></div>
+        </div>
+      </div>
       <div class="ctl"><label for="ixKind">Measuring</label>
         <select id="ixKind">
           <option value="">Both</option>
@@ -232,6 +236,7 @@
         </select></div>
     </div>
 
+    <div class="brandbar" id="ixBrandBar"></div>
     <div class="warn" id="ixWarn" hidden></div>
     <p class="scope-note" id="ixCount"></p>
     <div class="chart-scroll"><table id="ixTable"></table></div>

@@ -436,3 +436,20 @@ footer a { color: var(--text-secondary); }
 .warn h4 { margin: 0 0 6px; font-size: 14px; font-weight: 650; color: var(--text-primary); }
 .warn p { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--text-secondary); max-width: 82ch; }
 .warn p + p { margin-top: 8px; }
+
+/* ---- brand quick-pick ---- */
+.brandbar { display: flex; flex-wrap: wrap; gap: 7px; margin: 0 0 16px; align-items: center; }
+.brandbar .lbl {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: .12em; font-weight: 650;
+  color: var(--muted); margin-right: 4px;
+}
+.brandbar .chip { padding: 5px 12px; font-size: 13px; }
+.brandbar .chip .n { color: var(--muted); font-variant-numeric: tabular-nums; }
+.brandbar .chip[aria-pressed="true"] { background: var(--text-primary); color: var(--surface-1); border-color: var(--text-primary); }
+.brandbar .chip[aria-pressed="true"] .n { color: inherit; opacity: .7; }
+.brand-link {
+  background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer;
+  text-align: left; border-bottom: 1px dotted var(--muted);
+}
+.brand-link:hover { border-bottom-style: solid; color: var(--text-primary); }
+#index .ctl .combo { flex: 0 0 auto; width: 190px; }

@@ -9,6 +9,8 @@ with the boring stuff — the S&P 500, US housing, gold and cash — over any wi
 
 ![Named models against their benchmarks](docs/items.png)
 
+![Filtering by brand](docs/brands.png)
+
 ![The full index](docs/index.png)
 
 ![The ones that beat the index](docs/winners.png)
@@ -128,11 +130,26 @@ expensive faster than money lost value.
 ## Browsing the whole thing
 
 **The full index** lists every item in the database in one place — a different job from the
-analysis view above it, which only ever shows one kind and one page. Filter by category, brand
-(126 of them, re-listed as you narrow so the menu never offers a brand that returns nothing),
-retail vs resale, and data quality; sort by name, return, gap or price; page 50 at a time with
-first/previous/next/last and a page jump. Click any row for its price history, or send it straight
-to the chart at the top.
+analysis view above it, which only ever shows one kind and one page. Filter by category, brand,
+retail vs resale, data quality and outcome; sort by name, return, gap or price; page 50 at a time
+with first/previous/next/last and a page jump. Click any row for its price history, or send it
+straight to the chart at the top.
+
+### Filtering by brand
+
+There are 126 brands, so there are three ways in, and they stay in step with each other:
+
+- a **quick-pick bar** of the twelve largest, with counts (Hermès 80, Rolex 77, Ferrari 55 …)
+- a **type-ahead** box for the long tail — "guarn" finds Guarneri del Gesù
+- the **brand under any row**, which is clickable and filters to it
+
+The list re-counts whenever the category or kind narrows, so it never offers a brand that would
+return nothing — pick Watches and it drops from 126 brands to 32, led by Rolex 77. A brand that
+falls outside the new filter is cleared rather than left selected and empty, and a selected brand
+that is not one of the twelve largest is pinned into the bar so it stays visible.
+
+Every index filter lives in the URL, so a view is a link:
+`?b=Rolex&out=beat&data=tracked&sort=edge` is every tracked Rolex that beat the index.
 
 ## The catalogue — 1,000+ models, and what their prices actually are
 
