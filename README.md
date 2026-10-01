@@ -15,12 +15,14 @@ with the boring stuff — the S&P 500, US housing, gold and cash — over any wi
 
 ![The ones that beat the index](docs/winners.png)
 
+![Rent vs buy](docs/housing.png)
+
 ## Running it
 
 ```bash
 bun run seed     # build boujee.db from data/assets.json
 bun start        # http://localhost:4321
-bun test         # 65 tests
+bun test         # 86 tests
 ```
 
 `bun run dev` watches and reloads. Set `PORT` to move it off 4321.
@@ -241,6 +243,51 @@ tend to leave the index.
 
 This is an educational tool, not investment advice.
 
+## Rent vs buy — `/housing`
+
+A separate page for a different question: a first-time buyer has the smallest down payment a bank
+will take. Over thirty years, what does that money become as a home, as the S&P 500, or as gold?
+
+**Ten markets:** the US average, San Francisco, New York, Seattle and Los Angeles, plus Boston,
+Chicago, Miami, Atlanta and Dallas. **Three strategies:**
+
+| | What happens | Down payment |
+|---|---|---|
+| **Live in it** | buy a starter home and live there | the minimum: 3% (Conventional 97), 3.5% FHA above the conforming limit, 10% jumbo above the high-cost ceiling |
+| **House hack** | live in one bedroom of a three-bedroom starter home and rent out the other two | same as living in it |
+| **Rent it out** | buy whichever home type had the best cap rate *at purchase* and let the whole thing | 15%, the minimum for an investment property, with a 0.625-point higher rate |
+
+**A starter home** is Zillow's bottom-tier home value index: the typical home between the 5th and
+35th percentile of its metro. It is defined by price, not size, so in SF, NYC and LA it is often a
+small condo.
+
+**The comparison is budget-matched.** Every strategy starts with the same money, the down payment.
+Each year, whoever spends less on housing invests the difference: the renter in the S&P 500 or gold,
+and the owner in the S&P 500. Home values are shown after a 6% selling cost. The investor is
+compared against putting the down payment, and any cash the rental needs later, into stocks or
+gold instead.
+
+There are two views. **History** buys at the end of 1995 at that December's mortgage rate and runs
+to the end of 2025. **Projection** starts from Zillow's latest prices and rents and today's rate, and
+grows them at constant rates you can edit. It defaults to each line's own 1995–2025 rate, and a
+"Cautious" preset is available.
+
+### How much to trust each part
+
+| Tier | Series |
+|---|---|
+| sourced | S&P 500 and gold annual returns (Damodaran, Jan 2026); Freddie Mac 30-year rate; Zillow ZHVI home values from 2000; Zillow ZORI rents from 2015; FHFA/HUD loan limits |
+| estimated | home values 1995–1999, back-cast with the metro's Case-Shiller index (FHFA for Dallas), and shaded on the chart; rents before 2015, back-cast with the BLS rent-of-primary-residence index; tax, insurance and maintenance rates |
+| modelled | starter-home rent, which Zillow does not publish (apartment rent × (starter ÷ condo value)^0.5); room rent; vacancy and management; the whole projection |
+
+`bun tools/fetch-housing.ts` rebuilds `data/housing.json` from FRED, Zillow and the BLS API. The
+unkeyed BLS API allows 25 requests a day, and each run uses two. The model is `src/housing.ts`.
+
+**Not modelled:** income tax on rent or stock gains, the home-sale capital-gains exclusion, the
+mortgage interest deduction, buying closing costs, refinancing, and the time and risk of being a
+landlord. At 3% down, buying closing costs are roughly the size of the down payment itself, which
+is the largest omission.
+
 ## Layout
 
 ```
@@ -255,7 +302,11 @@ src/catalogue.ts    derives a price series from a catalogue specification
 src/items-write.ts  validation and persistence for user-submitted models
 src/server.ts       Bun.serve — the API and static files
 public/             the frontend; charts and the favicon are hand-written SVG, no libraries
-test/               65 tests over the return maths, the write path, interpolation and the catalogue
+data/housing.json   30 years of home values, rents, rates, stock and gold returns for ten markets
+tools/fetch-housing.ts  rebuilds it from FRED, Zillow and BLS
+src/housing.ts      the rent-vs-buy model: minimum down, amortisation, budget matching, cap rates
+public/housing.*    the /housing page
+test/               86 tests over the return maths, the write path, interpolation, the catalogue and the housing model
 ```
 
 ### API
@@ -272,3 +323,4 @@ test/               65 tests over the return maths, the write path, interpolatio
 | `POST /api/items` | save a new model (JSON body; see the form for the shape) |
 | `DELETE /api/items/:id` | remove a user-added model |
 | `GET /api/provenance` | source and confidence for each category series |
+| `GET /api/housing?mode=history\|projection&real=&years=&home=&rent=&sp=&gold=&rate=&infl=` | every market × strategy: net worth, S&P and gold paths, yearly costs, investor candidates |
