@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { ASSUMPTIONS, DATA, analyseHousing, capRate, minimumDown, rentFor, simulate } from "../src/housing";
+import { ASSUMPTIONS, DATA, analyseHousing, capRate, ledger, minimumDown, rentFor, simulate } from "../src/housing";
 
 const flat = (n: number, v: number) => Array(n).fill(v);
 const terms = {
   scenario: "owner" as const, homeType: "sfr" as const, ratePct: 6, downPct: 3,
-  taxRate: 1, taxCapPct: null, insurancePct: 0.5,
+  taxRate: 1, taxCapPct: null, insurancePct: 0.5, closingPct: 0,
 };
 
 describe("data", () => {
@@ -54,7 +54,7 @@ describe("minimum down payment", () => {
 describe("simulate", () => {
   const path = { home: flat(31, 300_000), rent: flat(31, 1_500), sp500: flat(30, 0), gold: flat(30, 0) };
 
-  test("the fund is the down payment and every strategy starts with it", () => {
+  test("with closing costs off, the fund is the down payment and every strategy starts with it", () => {
     const r = simulate(path, terms);
     expect(r.fund).toBeCloseTo(9_000, 6);
     expect(r.netWorth[0]).toBeCloseTo(9_000, 6);
@@ -105,6 +105,73 @@ describe("simulate", () => {
     expect(inv.baseline.slice(1).every((b) => b === 0)).toBe(true);
     const own = simulate(path, { ...terms, downPct: 15 });
     expect(inv.monthlyPayment).toBeGreaterThan(own.monthlyPayment);
+  });
+});
+
+describe("closing costs and the ledger", () => {
+  const rising = {
+    home: Array.from({ length: 31 }, (_, k) => 300_000 * Math.pow(1.04, k)),
+    rent: Array.from({ length: 31 }, (_, k) => 1_500 * Math.pow(1.035, k)),
+    sp500: flat(30, 9), gold: flat(30, 6),
+  };
+
+  test("closing costs join the up-front cash, but not the equity", () => {
+    const r = simulate(rising, { ...terms, closingPct: 3 });
+    expect(r.down).toBeCloseTo(9_000, 6);
+    expect(r.closing).toBeCloseTo(9_000, 6);
+    expect(r.fund).toBeCloseTo(18_000, 6);
+    expect(r.sp500[0]).toBeCloseTo(18_000, 6);
+    expect(r.equity[0]).toBeCloseTo(9_000, 6);
+    expect(r.loan).toBeCloseTo(291_000, 6);
+  });
+
+  test("both sides of every strategy spend exactly the same money", () => {
+    for (const scenario of ["owner", "hack", "investor"] as const) {
+      const r = simulate(rising, { ...terms, scenario, closingPct: 3, downPct: scenario === "investor" ? 15 : 3 });
+      const l = ledger(r, scenario);
+      expect(l.owner.totalOut).toBeCloseTo(l.renter.totalOut, 4);
+    }
+  });
+
+  test("principal plus down payment is the equity the loan has built", () => {
+    const r = simulate(rising, terms);
+    const l = ledger(r, "owner");
+    expect(l.owner.down + l.owner.principal).toBeCloseTo(r.price - r.loanBalance.at(-1)!, 4);
+  });
+
+  test("savings invested through the year earn half a year's return", () => {
+    const r = simulate(rising, terms);
+    const k = r.items.toAlternative.findIndex((x, i) => i > 0 && x > 0);
+    if (k > 0) {
+      expect(r.sp500[k]).toBeCloseTo(r.sp500[k - 1] * 1.09 + r.items.toAlternative[k] * Math.sqrt(1.09), 6);
+    }
+  });
+
+  test("the lump sum alone grows at exactly the index return", () => {
+    const r = simulate(rising, { ...terms, closingPct: 3 });
+    expect(r.lumpSp.at(-1)!).toBeCloseTo(r.fund * Math.pow(1.09, 30), 4);
+  });
+
+  test("a home you live in keeps the first $250k of gain tax-free; a rental does not", () => {
+    const r = simulate(rising, terms);
+    const own = ledger(r, "owner"), inv = ledger(r, "investor");
+    expect(own.owner.homeTax).toBeCloseTo(Math.max(0, own.owner.homeGain - 250_000) * 0.15, 6);
+    expect(inv.owner.homeTax).toBeCloseTo(inv.owner.homeGain * 0.15, 6);
+  });
+
+  test("gone-for-good owner costs exclude principal and include selling fees", () => {
+    const r = simulate(rising, terms);
+    const o = ledger(r, "owner").owner;
+    expect(o.unrecoverable).toBeCloseTo(o.closing + o.interest + o.mortgageInsurance + o.propertyTax
+      + o.homeInsurance + o.maintenance + o.dues + o.management - o.income + o.sellingCost, 6);
+  });
+
+  test("leaving closing costs out shrinks the fund on every scenario", () => {
+    const withC = analyseHousing({ mode: "history", real: false });
+    const without = analyseHousing({ mode: "history", real: false, closing: false });
+    for (const k of ["owner", "hack", "investor"] as const) {
+      expect(without.markets[0].scenarios[k].fund).toBeLessThan(withC.markets[0].scenarios[k].fund);
+    }
   });
 });
 

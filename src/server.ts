@@ -148,6 +148,7 @@ const server = Bun.serve({
         gold: clampNum(q.get("gold"), -10, 25) ?? undefined,
         ratePct: clampNum(q.get("rate"), 0, 20) ?? undefined,
         inflation: clampNum(q.get("infl"), -5, 15) ?? undefined,
+        closing: q.get("closing") !== "0",
       }));
     }
 
