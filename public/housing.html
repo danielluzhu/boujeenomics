@@ -88,6 +88,12 @@
           <button type="button" data-v="1" aria-pressed="false">Real</button>
         </div>
       </div>
+      <div class="ctl"><label>Closing costs</label>
+        <div class="seg" id="closingSeg">
+          <button type="button" data-v="1" aria-pressed="true">Included</button>
+          <button type="button" data-v="0" aria-pressed="false">Left out</button>
+        </div>
+      </div>
       <div class="ctl"><label>Scale</label>
         <div class="seg" id="scaleSeg">
           <button type="button" data-v="lin" aria-pressed="true">Linear</button>
@@ -129,10 +135,24 @@
     <p id="pullText"></p>
   </section>
 
+  <section class="card" id="ledger">
+    <p class="eyebrow">The ledger</p>
+    <h2 id="ledgerTitle">Where every dollar went</h2>
+    <p class="hint" id="ledgerHint"></p>
+    <div class="ledger-bars" id="ledgerBars"></div>
+    <div class="legend" id="ledgerLegend"></div>
+    <div class="ledger-grid" id="ledgerTable"></div>
+    <div class="proscons" id="prosCons"></div>
+  </section>
+
   <section class="card">
     <p class="eyebrow">The cash</p>
     <h2 id="costTitle">Owning versus renting, year by year</h2>
     <p class="hint" id="costHint"></p>
+    <div class="seg small" id="costSeg">
+      <button type="button" data-v="cash" aria-pressed="true">Cash out the door</button>
+      <button type="button" data-v="gone" aria-pressed="false">Money you don't get back</button>
+    </div>
     <div class="chart-scroll"><svg id="costs" class="chart" role="img" aria-labelledby="costHint"></svg></div>
     <div class="legend" id="costLegend"></div>
   </section>
@@ -184,7 +204,8 @@
       </div>
       <div>
         <h3>The comparison</h3>
-        <p>Every strategy starts with the same money: the down payment. After that the budgets are
+        <p>Every strategy starts with the same money: the down payment plus closing costs, which
+          the renter invests in the S&amp;P 500 on day one instead. After that the budgets are
           matched year by year. If owning costs more than renting, the renter invests the
           difference in the S&amp;P 500 or in gold. If owning costs less, the owner invests the
           difference in the S&amp;P 500. The investor is compared against investing the down
@@ -212,8 +233,9 @@
 <footer>
   <div class="wrap">
     <p><strong>Educational tool, not investment advice.</strong> Leaves out income tax on rent and
-      on stock gains, the $250,000 / $500,000 home-sale exclusion, the mortgage interest deduction,
-      buying closing costs, refinancing, and the time and risk of being a landlord.</p>
+      on stock gains (estimated separately in the ledger), the mortgage interest deduction,
+      refinancing, and the time and risk of being a landlord. Savings are invested monthly; the
+      model approximates that as mid-year.</p>
     <p class="muted">Home values and rents are Zillow metro data, back-cast before Zillow's coverage
       and labelled where they are. <a href="https://github.com/danielluzhu/boujeenomics">Source on GitHub</a>.</p>
   </div>

@@ -18,6 +18,7 @@ const SCENARIO = {
 
 const state = {
   market: "us", scenario: "owner", mode: "history", real: false, scale: "lin",
+  closing: true, costView: "cash",
   preset: "history",
   p: { years: 30, home: null, rent: null, sp: null, gold: null, rate: null, infl: null },
   data: null, history: null,
@@ -47,6 +48,7 @@ const multiple = (a, b) => {
 /* ---------------------------------------------------------------- fetching */
 function query(mode, real) {
   const q = new URLSearchParams({ mode, real: real ? "1" : "0" });
+  if (!state.closing) q.set("closing", "0");
   if (mode === "projection") {
     const p = state.p;
     q.set("years", p.years);
@@ -119,7 +121,7 @@ function renderHero() {
     [`${beat("owner", "sp500")}<em> of ${n}</em>`, "markets where a starter home beat renting and putting the difference in the S&P 500"],
     [`${beat("hack", "sp500")}<em> of ${n}</em>`, "where a house hack did, after selling costs"],
     [`${beat("investor", "sp500")}<em> of ${n}</em>`, "where a rental property beat the same money in the index"],
-    [`${money(us.fund)}`, `the national minimum down payment on a starter home in 1995 — ${money(us.price)} at 3% down`],
+    [`${money(us.fund)}`, `the cash a first-time buyer needed for a US starter home in 1995: 3% down on ${money(us.price)}, plus closing costs`],
   ].map(([f, c]) => `<div class="hstat"><div class="fig">${f}</div><div class="cap">${c}</div></div>`).join("");
 }
 
@@ -131,9 +133,11 @@ function renderTiles() {
   const firstYear = d.years[projecting() ? 0 : 1];
   const rentLabel = state.scenario === "investor" ? "Rent it earns" : "Rent for the same home";
   $("#tiles").innerHTML = [
-    tile("Starting fund", money(s.fund), `${s.downPct}% down · ${esc(s.product)}`),
+    tile("Starting fund", money(s.fund), s.closing > 0
+      ? `${money(s.down)} down (${s.downPct}%) + ${money(s.closing)} closing · ${esc(s.product)}`
+      : `${s.downPct}% down · ${esc(s.product)}`),
     tile(state.scenario === "investor" ? "Rental bought" : "Home price", money(s.price),
-      `${esc(s.homeLabel)}, end of ${d.years[0]}`),
+      `${esc(s.homeLabel)}, ${projecting() ? `today (${d.asOf.home.slice(0, 7)})` : `end of ${d.years[0]}`}`),
     tile("Mortgage", `${money(s.monthlyPayment)}<small>/mo</small>`, `${s.rate.toFixed(2)}% fixed, 30 years · principal + interest`),
     tile(rentLabel, `${money(s.startRent)}<small>/mo</small>`, `market rent in ${firstYear}`),
     tile(`Home value, ${end}`, compact(s.value.at(-1)),
@@ -316,6 +320,15 @@ function drawCosts() {
       detail: (i) => `rent collected ${money(s.income[i] / 12)}, costs ${money((s.cost[i] + s.income[i]) / 12)}` }];
     $("#costTitle").textContent = "What the rental pays you, or costs you";
     $("#costHint").textContent = `Rent collected after ${state.data.assumptions.vacancyPct}% vacancy, minus mortgage, tax, insurance, maintenance, association dues and management, per month. Below zero, the investor tops it up from their own pocket — and the S&P 500 and gold lines get the same top-up.`;
+  } else if (state.costView === "gone") {
+    series = [
+      { name: "Owning: money you don't get back", color: COLOR.home, values: monthly(s.unrecoverable), dash,
+        detail: (i) => `excludes ${money(s.principal[i] / 12)}/mo of principal, which becomes equity` },
+      { name: "Renting: rent", color: COLOR.sp500, values: monthly(s.rentPaid), dash },
+    ];
+    $("#costTitle").textContent = "Money you don't get back, month by month";
+    $("#costHint").textContent = "Rent is entirely gone. Owning is partly gone — interest, property tax, insurance, maintenance, mortgage insurance and dues — and partly saved, because principal becomes equity. This is the fairer way to set the two side by side." +
+      (state.scenario === "hack" ? " Room rent collected is subtracted from the owner's line." : "");
   } else {
     series = [
       { name: state.scenario === "hack" ? "Owning, after room rent" : "Owning", color: COLOR.home, values: monthly(s.cost), dash,
@@ -327,8 +340,159 @@ function drawCosts() {
       (state.scenario === "hack" ? ", minus the rent from two rooms" : "") +
       " — against market rent for the same kind of home. Whichever is cheaper that year, the difference is invested. The mortgage is fixed and rent is not, which is most of the story.";
   }
+  $("#costSeg").hidden = state.scenario === "investor";
   lineChart($("#costs"), d.years, series, { from: 1, zero: true, height: 300 });
   legend("#costLegend", series);
+}
+
+
+/* ----------------------------------------------------------------- ledger */
+function renderLedger() {
+  const s = scen(), d = state.data, L = s.ledger, O = L.owner, R = L.renter, N = L.years;
+  const inv = state.scenario === "investor", hack = state.scenario === "hack";
+  const end = d.years.at(-1), sell = d.assumptions.sellingCostPct;
+  const homeName = inv ? "Buying the rental" : hack ? "House hacking" : "Owning";
+  const altName = inv ? "The S&P 500 instead" : "Renting + S&P 500";
+
+  $("#ledgerTitle").textContent = `${homeName} vs ${inv ? "the S&P 500" : "renting + the S&P 500"}: where every dollar went`;
+  $("#ledgerHint").textContent = `${d.years[0]}–${end}, ${market().name}, in ${dollars()}. Both sides spend exactly ` +
+    `${money(O.totalOut)} over ${N} years — the up-front cash plus every month after it — because whichever is cheaper ` +
+    `in a given year invests the difference. The only question is what that money bought.`;
+
+  // Bars: coloured segments are money you keep; grey is money that is gone.
+  const kept = (label, v, c) => ({ label, v, c, gone: false });
+  const gone = (label, v) => ({ label, v, gone: true });
+  const ownerSegs = [
+    kept("Down payment", O.down, COLOR.home),
+    kept("Principal paid (equity)", O.principal, COLOR.home),
+    kept("Invested savings", O.invested, COLOR.sp500),
+    gone("Closing costs", O.closing), gone("Interest", O.interest), gone("Mortgage insurance", O.mortgageInsurance),
+    gone("Property tax", O.propertyTax), gone("Home insurance", O.homeInsurance), gone("Maintenance", O.maintenance),
+    gone("Association dues", O.dues), gone("Management", O.management),
+  ].filter((x) => x.v > 0.5);
+  const renterSegs = [
+    kept("Invested on day one", R.upfront, COLOR.sp500),
+    kept("Invested monthly", R.invested, COLOR.sp500),
+    gone("Rent", R.rent),
+  ].filter((x) => x.v > 0.5);
+  const bars = [
+    { name: homeName, segs: ownerSegs },
+    ...(O.income > 0 ? [{ name: "Rent collected", segs: [kept(hack ? "Room rent collected" : "Rent collected", O.income, "var(--s3)")] }] : []),
+    { name: altName, segs: renterSegs },
+  ];
+  const max = Math.max(...bars.map((b) => b.segs.reduce((a, x) => a + x.v, 0)));
+  $("#ledgerBars").innerHTML = bars.map((b) => {
+    const tot = b.segs.reduce((a, x) => a + x.v, 0);
+    let alt = false;
+    return `<div class="lbar-row"><span class="nm">${esc(b.name)}</span><div class="lbar">${b.segs.map((x) => {
+      alt = x.gone ? !alt : alt;
+      return `<span class="${x.gone ? "gone" + (alt ? "" : " alt") : ""}" style="--c:${x.c ?? "var(--axis)"};width:${(x.v / max) * 100}%" data-tip="${esc(x.label)}: ${money(x.v)}${x.gone ? " — gone" : ""}"></span>`;
+    }).join("")}</div><span class="tot">${compact(tot)}</span></div>`;
+  }).join("");
+  $("#ledgerLegend").innerHTML = [
+    [COLOR.home, "Becomes home equity"], [COLOR.sp500, "Invested in the S&P 500"],
+    ...(O.income > 0 ? [["var(--s3)", "Rent collected, which offsets costs"]] : []),
+    ["var(--axis)", "Gone: interest, tax, insurance, upkeep, fees, rent"],
+  ].map(([c, t]) => `<span style="--c:${c}"><i class="block"></i>${t}</span>`).join("");
+
+  const row = (label, v, cls = "", note = "") =>
+    `<tr class="${cls}"><td class="${cls === "" ? "sub" : ""}">${label}${note ? ` <span class="note">${note}</span>` : ""}</td><td class="num">${v}</td></tr>`;
+  const sec = (t) => `<tr class="sec"><td colspan="2">${t}</td></tr>`;
+  const neg = (v) => (v > 0.5 ? "−" + money(v) : money(0));
+  const opt = (label, v, note) => (v > 0.5 ? row(label, money(v), "", note) : "");
+  const winner = O.afterTax >= R.afterTax ? "home" : "alt";
+
+  const ownerTable = `<h3><span class="swatch" style="--c:${COLOR.home}"></span>${esc(homeName)}</h3><table><tbody>
+    ${sec("Up front")}
+    ${row("Down payment", money(O.down), "", `${s.downPct}%`)}
+    ${state.closing ? row("Closing costs", money(O.closing), "", "gone on day one") : row("Closing costs", "left out")}
+    ${sec(`Over ${N} years`)}
+    ${row("Principal", money(O.principal), "", "becomes equity")}
+    ${row("Interest", money(O.interest), "", `${Math.round(O.firstYearInterestShare * 100)}% of year one's payments`)}
+    ${opt("Mortgage insurance", O.mortgageInsurance, "until 22% equity")}
+    ${row("Property tax", money(O.propertyTax))}
+    ${row("Home insurance", money(O.homeInsurance))}
+    ${row("Maintenance", money(O.maintenance), "", `${d.assumptions.maintenancePct}% of value a year`)}
+    ${opt("Association dues", O.dues)}
+    ${opt("Management", O.management)}
+    ${O.income > 0 ? row(hack ? "Room rent collected" : "Rent collected", neg(O.income)) : ""}
+    ${opt("Invested savings", O.invested, "in years owning cost less")}
+    ${row("Total cash out", money(O.totalOut), "tot")}
+    ${row("of which gone for good", money(O.unrecoverable), "", `incl. ${sell}% selling fees`)}
+    ${sec(`At the end of ${end}`)}
+    ${row("Home value", money(O.homeValue))}
+    ${O.loanLeft > 1 ? row("Mortgage still owed", neg(O.loanLeft)) : ""}
+    ${row("Agent and selling fees", neg(O.sellingCost), "", `${sell}%`)}
+    ${opt("Invested savings, grown", O.sidePot)}
+    ${row("Net worth", money(O.end), "tot")}
+    ${row("Tax on the home sale", neg(O.homeTax), "", O.exclusion ? `first ${compact(O.exclusion)} of gain tax-free` : "no exclusion on a rental")}
+    ${O.sideTax > 0.5 ? row("Tax on stock gains", neg(O.sideTax), "", `${d.assumptions.capitalGainsPct}%`) : ""}
+    ${row(`After tax${winner === "home" ? " ▲" : ""}`, money(O.afterTax), "big")}
+  </tbody></table>`;
+
+  const renterTable = `<h3><span class="swatch" style="--c:${COLOR.sp500}"></span>${esc(altName)}</h3><table><tbody>
+    ${sec("Up front")}
+    ${row("Invested on day one", money(R.upfront), "", "the same cash the buyer spends")}
+    ${sec(`Over ${N} years`)}
+    ${inv ? "" : row("Rent", money(R.rent), "", `${money(s.startRent)}/mo at the start`)}
+    ${row("Invested monthly", money(R.invested), "", inv ? "whatever the rental needed topping up" : "in years owning cost more")}
+    ${row("Total cash out", money(R.totalOut), "tot")}
+    ${row("of which gone for good", money(R.unrecoverable), "", inv ? "" : "all of the rent")}
+    ${sec(`At the end of ${end}`)}
+    ${row("Money put in", money(R.upfront + R.invested))}
+    ${row("Market growth", money(R.growth), "", "no trading fees")}
+    ${row("Net worth", money(R.end), "tot")}
+    ${row("Tax on stock gains", neg(R.tax), "", `${d.assumptions.capitalGainsPct}% if all sold`)}
+    ${row(`After tax${winner === "alt" ? " ▲" : ""}`, money(R.afterTax), "big")}
+  </tbody></table>`;
+  $("#ledgerTable").innerHTML = `<div>${ownerTable}</div><div>${renterTable}</div>`;
+
+  renderProsCons();
+}
+
+function renderProsCons() {
+  const box = $("#prosCons");
+  if (state.scenario === "investor") { box.innerHTML = ""; return; }
+  const s = scen(), d = state.data, O = s.ledger.owner, R = s.ledger.renter, N = s.ledger.years;
+  const hack = state.scenario === "hack";
+  const rentEnd = s.rentPaid.at(-1) / 12;
+  const gain = O.homeValue - s.price;
+  const li = (cls, html) => `<li class="${cls}">${html}</li>`;
+  const owning = [
+    li("con", `<b>A large sum up front.</b> ${money(s.fund)} on day one: ${money(O.down)} down${O.closing ? ` and ${money(O.closing)} in closing costs that never come back` : ""}.`),
+    li("pro", `<b>The mortgage builds equity.</b> ${money(O.principal)} of principal over ${N} years, plus ${money(gain)} of price growth on the whole house — not just on the down payment.`),
+    li("con", `<b>Early payments are mostly interest.</b> ${Math.round(O.firstYearInterestShare * 100)}% of year one's mortgage went to the bank; ${money(O.interest)} in interest over ${N} years.`),
+    li("con", `<b>Taxes, insurance and maintenance never stop.</b> ${money(O.propertyTax + O.homeInsurance + O.maintenance + O.mortgageInsurance + O.dues)} over ${N} years, and they rise with the home's value.`),
+    li("con", `<b>Agent fees to get out.</b> ${money(O.sellingCost)} at ${d.assumptions.sellingCostPct}% of the sale price.`),
+    li("pro", `<b>A fixed payment.</b> Principal and interest stay ${money(s.monthlyPayment)}/mo for 30 years while rent for the same home went from ${money(s.startRent)} to ${money(rentEnd)}.`),
+    li("pro", `<b>The first ${compact(O.exclusion)} of gain is tax-free</b> on a home you live in.`),
+    ...(hack ? [li("pro", `<b>Tenants pay part of it.</b> ${money(O.income)} of room rent collected over ${N} years.`),
+      li("con", `<b>You live with them.</b> Two rooms let to strangers, and the work of finding and keeping them.`)] : []),
+    li("con", `<b>One house, in one city.</b> Undiversified, and slow and expensive to sell.`),
+  ];
+  const renting = [
+    li("pro", `<b>Growing from day one.</b> The ${money(R.upfront)} goes straight into the index; on its own it became ${money(R.upfrontGrown)}.`),
+    li("pro", `<b>No trading fees.</b> A broad index fund costs about 0.03% a year and nothing to buy or sell; not modelled.`),
+    li("pro", `<b>Diversified and liquid.</b> Five hundred companies, sellable any day, in any amount.`),
+    li("con", `<b>Rent builds no equity.</b> ${money(R.rent)} paid over ${N} years, none of it recoverable.`),
+    li("con", `<b>Rent rises.</b> From ${money(s.startRent)} to ${money(rentEnd)} a month for the same home — ${multiple(s.startRent, rentEnd)}.`),
+    li("con", `<b>Gains are taxed.</b> ${money(R.tax)} at ${d.assumptions.capitalGainsPct}% if it were all sold at the end.`),
+    li("con", `<b>It only works if you invest the difference.</b> This model assumes the renter invests every dollar the owner would have spent. Most people don't, and the mortgage forces the owner to save.`),
+  ];
+  box.innerHTML = `<div><h4>Owning</h4><ul>${owning.join("")}</ul></div><div><h4>Renting + S&amp;P 500</h4><ul>${renting.join("")}</ul></div>`;
+}
+
+function wireLedgerTips() {
+  const tip = $("#tip");
+  $("#ledgerBars").addEventListener("mousemove", (e) => {
+    const t = e.target.closest("[data-tip]");
+    if (!t) { tip.classList.remove("on"); return; }
+    tip.innerHTML = `<div class="row">${esc(t.dataset.tip)}</div>`;
+    tip.classList.add("on");
+    tip.style.left = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8) + "px";
+    tip.style.top = (e.clientY - tip.offsetHeight - 10) + "px";
+  });
+  $("#ledgerBars").addEventListener("mouseleave", () => tip.classList.remove("on"));
 }
 
 /* ---------------------------------------------------------------- tables */
@@ -392,8 +556,8 @@ function renderDefs() {
   const a = state.data.assumptions;
   const lim = a.loanLimits;
   $("#downRules").innerHTML = projecting()
-    ? `<b>3%</b> with a Conventional 97 loan (Fannie Mae HomeReady / Freddie Mac Home Possible) for first-time buyers, when the loan fits under the ${money(lim.conformingBaseline)} conforming limit. Above it, <b>3.5%</b> with FHA, up to the ${money(lim.highCostCeiling)} high-cost ceiling. Above that a jumbo loan, typically <b>10%</b>. These are the 2026 limits. Both low-down loans carry mortgage insurance, modelled at ${a.mortgageInsurancePct}% a year until the balance falls to 78% of the price.`
-    : `<b>3%</b>, with a 97% loan-to-value conventional mortgage, which Fannie Mae introduced for first-time buyers in 1994. Every 1995 starter home here falls under that year's ${money(lim.conformingBaseline)} conforming limit. The loan carries mortgage insurance, modelled at ${a.mortgageInsurancePct}% a year until the balance falls to 78% of the price. Closing costs come on top and are not included.`;
+    ? `<b>3%</b> with a Conventional 97 loan (Fannie Mae HomeReady / Freddie Mac Home Possible) for first-time buyers, when the loan fits under the ${money(lim.conformingBaseline)} conforming limit. Above it, <b>3.5%</b> with FHA, up to the ${money(lim.highCostCeiling)} high-cost ceiling. Above that a jumbo loan, typically <b>10%</b>. These are the 2026 limits. Both low-down loans carry mortgage insurance, modelled at ${a.mortgageInsurancePct}% a year until the balance falls to 78% of the price. Closing costs of about ${a.closingCostPct}% come on top${a.closingIncluded ? " and are counted in the starting fund" : "; they are switched off right now"}.`
+    : `<b>3%</b>, with a 97% loan-to-value conventional mortgage, which Fannie Mae introduced for first-time buyers in 1994. Every 1995 starter home here falls under that year's ${money(lim.conformingBaseline)} conforming limit. The loan carries mortgage insurance, modelled at ${a.mortgageInsurancePct}% a year until the balance falls to 78% of the price. Closing costs of about ${a.closingCostPct}% come on top${a.closingIncluded ? " and are counted in the starting fund" : "; they are switched off right now"}.`;
   $("#roomShare").textContent = Math.round(a.roomShare * 100) + "%";
   $("#vacancy").textContent = a.vacancyPct + "%";
   $("#invDown").textContent = a.investorDownPct + "%";
@@ -415,6 +579,7 @@ function renderProvenance() {
     ["estimated", `${mk.short} rents before ${mk.rentFrom.all}`, "Zillow's first full year of rents, carried back by the BLS rent-of-primary-residence index for the metro. That index tracks every lease, not only new ones, so it moves more smoothly than asking rents did."],
     ["modelled", "Starter-home rent", `Zillow publishes no rent for the bottom third of homes. Starter rent = apartment rent × (starter value ÷ condo value)<sup>${a.starterRentElasticity}</sup>: apartments rent against condos, and rent rises more slowly than price.`],
     ["estimated", `${mk.short} costs`, `Property tax ${mk.taxRate}% of assessed value${mk.taxCap ? `, with assessment growth capped at ${mk.taxCap}% a year for owner-occupiers` : ""}; home insurance ${mk.insurance}% of value; maintenance ${a.maintenancePct}%; association dues 0–${a.hoaPct.condo}% depending on home type. Rounded county-level estimates.`],
+    ["estimated", "Tax if you cash out", `Federal long-term capital gains at ${a.capitalGainsPct}% on stock gains and on home gains, after the ${money(a.homeSaleExclusion)} exclusion for a home you live in (single filer; $500,000 for a married couple). No state tax, no depreciation recapture on rentals. Shown in the ledger only; the charts are before tax.`],
     ["modelled", "House hack and rental income", `Rooms at ${Math.round(a.roomShare * 100)}% of whole-home rent each, ${a.vacancyPct}% vacancy, ${a.managementPct}% management on rentals. No income tax on rent, no depreciation.`],
   ];
   if (projecting()) {
@@ -450,6 +615,8 @@ function writeUrl() {
   if (state.mode !== "history") q.set("view", state.mode);
   if (state.real) q.set("real", "1");
   if (state.scale !== "lin") q.set("scale", state.scale);
+  if (!state.closing) q.set("closing", "0");
+  if (state.costView !== "cash") q.set("cost", state.costView);
   if (projecting()) {
     if (state.p.years !== 30) q.set("years", state.p.years);
     for (const k of ["home", "rent", "sp", "gold", "rate", "infl"]) if (state.p[k] !== null) q.set(k, state.p[k]);
@@ -467,6 +634,8 @@ function readUrl() {
   if (q.get("view") === "projection") state.mode = "projection";
   state.real = q.get("real") === "1";
   if (q.get("scale") === "log") state.scale = "log";
+  if (q.get("closing") === "0") state.closing = false;
+  if (q.get("cost") === "gone") state.costView = "gone";
   const n = Number(q.get("years"));
   if (q.has("years") && n >= 5 && n <= 40) state.p.years = Math.trunc(n);
   for (const k of ["home", "rent", "sp", "gold", "rate", "infl"]) {
@@ -496,6 +665,7 @@ function renderAll() {
   renderTiles();
   drawAll();
   renderPull();
+  renderLedger();
   renderMarkets();
   renderPick();
   renderDefs();
@@ -514,6 +684,11 @@ function wire() {
   seg("#modeSeg", (v) => { state.mode = v; load(); });
   seg("#realSeg", (v) => { state.real = v === "1"; load(); });
   seg("#scaleSeg", (v) => { state.scale = v; writeUrl(); drawGrowth(); });
+  press("#closingSeg", state.closing ? "1" : "0");
+  press("#costSeg", state.costView);
+  seg("#closingSeg", (v) => { state.closing = v === "1"; load(); });
+  seg("#costSeg", (v) => { state.costView = v; writeUrl(); drawCosts(); });
+  wireLedgerTips();
   seg("#presetSeg", (v) => {
     state.preset = v;
     Object.assign(state.p, PRESETS[v]);
