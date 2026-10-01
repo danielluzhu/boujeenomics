@@ -22,7 +22,7 @@ with the boring stuff — the S&P 500, US housing, gold and cash — over any wi
 ```bash
 bun run seed     # build boujee.db from data/assets.json
 bun start        # http://localhost:4321
-bun test         # 86 tests
+bun test         # 94 tests
 ```
 
 `bun run dev` watches and reloads. Set `PORT` to move it off 4321.
@@ -261,11 +261,29 @@ Chicago, Miami, Atlanta and Dallas. **Three strategies:**
 35th percentile of its metro. It is defined by price, not size, so in SF, NYC and LA it is often a
 small condo.
 
-**The comparison is budget-matched.** Every strategy starts with the same money, the down payment.
-Each year, whoever spends less on housing invests the difference: the renter in the S&P 500 or gold,
-and the owner in the S&P 500. Home values are shown after a 6% selling cost. The investor is
-compared against putting the down payment, and any cash the rental needs later, into stocks or
-gold instead.
+**The comparison is budget-matched.** Every strategy starts with the same up-front cash: the down
+payment plus 3% closing costs (switchable off). The buyer spends it, and the renter puts all of it
+into the S&P 500 on day one. Each year, whoever spends less on housing invests the difference,
+month by month: the renter in the S&P 500 or gold, the owner in the S&P 500. Home values are
+shown after a 6% selling cost. The investor is compared against putting the same cash, and any
+top-ups the rental needs, into stocks or gold instead.
+
+### The ledger
+
+Owning versus renting is mostly a question of which costs are **gone for good**. Rent is entirely
+gone. A mortgage payment is partly gone (interest) and partly saved (principal becomes equity).
+Property tax, insurance, maintenance, mortgage insurance, closing costs and agent fees are gone too.
+The ledger itemises every dollar on both sides over the holding period:
+
+- what went in up front, and what went out each year, line by line;
+- how much of it is gone for good;
+- what each side holds at the end;
+- the tax each side would owe if it cashed out. This is federal long-term capital gains at 15%. A
+  home you live in keeps its first $250,000 of gain tax-free; a rental does not.
+
+Both columns always total the same cash out (a test enforces it), so the gap between them is
+purely what the money bought. A second view of the cost chart plots money-you-don't-get-back per
+month, owning against rent, which is a fairer pairing than total cash out.
 
 There are two views. **History** buys at the end of 1995 at that December's mortgage rate and runs
 to the end of 2025. **Projection** starts from Zillow's latest prices and rents and today's rate, and
@@ -283,10 +301,9 @@ grows them at constant rates you can edit. It defaults to each line's own 1995�
 `bun tools/fetch-housing.ts` rebuilds `data/housing.json` from FRED, Zillow and the BLS API. The
 unkeyed BLS API allows 25 requests a day, and each run uses two. The model is `src/housing.ts`.
 
-**Not modelled:** income tax on rent or stock gains, the home-sale capital-gains exclusion, the
-mortgage interest deduction, buying closing costs, refinancing, and the time and risk of being a
-landlord. At 3% down, buying closing costs are roughly the size of the down payment itself, which
-is the largest omission.
+**Not modelled:** income tax on rent, the mortgage interest deduction (most first-time buyers take
+the standard deduction), state taxes, refinancing, and the time and risk of being a landlord.
+Capital gains tax appears only in the ledger; the charts are before tax.
 
 ## Layout
 
@@ -306,7 +323,7 @@ data/housing.json   30 years of home values, rents, rates, stock and gold return
 tools/fetch-housing.ts  rebuilds it from FRED, Zillow and BLS
 src/housing.ts      the rent-vs-buy model: minimum down, amortisation, budget matching, cap rates
 public/housing.*    the /housing page
-test/               86 tests over the return maths, the write path, interpolation, the catalogue and the housing model
+test/               94 tests over the return maths, the write path, interpolation, the catalogue and the housing model
 ```
 
 ### API
