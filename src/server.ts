@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { analyse, analyseItems, brands, facets, summarise } from "./analytics";
 import { DB_PATH, open, openWritable, seed } from "./db";
 import { ValidationError, deleteItem, insertItem } from "./items-write";
+import { analyseHousing } from "./housing";
 
 if (!existsSync(DB_PATH)) {
   console.log(`no database at ${DB_PATH} — seeding`);
@@ -19,6 +20,13 @@ const clampInt = (v: string | null, fallback: number, lo: number, hi: number) =>
   if (v === null || v.trim() === "") return fallback;
   const n = Number(v);
   return Number.isFinite(n) ? Math.min(hi, Math.max(lo, Math.trunc(n))) : fallback;
+};
+
+/** An optional decimal parameter: absent or unparseable gives null, anything else is clamped. */
+const clampNum = (v: string | null, lo: number, hi: number) => {
+  if (v === null || v.trim() === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : null;
 };
 
 const json = (body: unknown, status = 200) =>
@@ -127,21 +135,38 @@ const server = Bun.serve({
       }));
     }
 
+    if (url.pathname === "/api/housing") {
+      const q = url.searchParams;
+      const projection = q.get("mode") === "projection";
+      return json(analyseHousing({
+        mode: projection ? "projection" : "history",
+        real: q.get("real") === "1",
+        years: clampInt(q.get("years"), 30, 5, 40),
+        homeGrowth: clampNum(q.get("home"), -10, 20),
+        rentGrowth: clampNum(q.get("rent"), -10, 20),
+        sp500: clampNum(q.get("sp"), -10, 25) ?? undefined,
+        gold: clampNum(q.get("gold"), -10, 25) ?? undefined,
+        ratePct: clampNum(q.get("rate"), 0, 20) ?? undefined,
+        inflation: clampNum(q.get("infl"), -5, 15) ?? undefined,
+      }));
+    }
+
     if (url.pathname === "/api/provenance") {
       return json(
         db.query("SELECT id,name,class,confidence,source,blurb,caveat FROM assets ORDER BY ord").all(),
       );
     }
 
-    const path = url.pathname === "/" ? "/index.html" : url.pathname;
+    const path = url.pathname === "/" ? "/index.html"
+      : url.pathname === "/housing" ? "/housing.html" : url.pathname;
 
     // Social scrapers need absolute URLs, and the public origin is only knowable per request
     // (this runs behind a proxy), so the page's origin placeholders are filled in on the way out.
-    if (path === "/index.html") {
+    if (path === "/index.html" || path === "/housing.html") {
       const proto = req.headers.get("x-forwarded-proto") ?? "http";
       const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? url.host;
       const origin = process.env.PUBLIC_ORIGIN ?? `${proto}://${host}`;
-      const html = (await Bun.file("public/index.html").text()).replaceAll("{{ORIGIN}}", origin);
+      const html = (await Bun.file(`public${path}`).text()).replaceAll("{{ORIGIN}}", origin);
       return new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } });
     }
 
