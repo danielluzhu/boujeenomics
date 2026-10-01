@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rent, buy or index fund? — Boujeenomics</title>
+<meta name="description" content="A first-time buyer's minimum down payment, followed for thirty years: a starter home, a house hack, a rental property, the S&P 500 and gold, across ten US markets.">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Boujeenomics">
+<meta property="og:title" content="Rent, buy, or put it in the S&P 500?">
+<meta property="og:description" content="Thirty years of a first-time buyer's minimum down payment — a starter home, a house hack, a rental, stocks and gold, in ten US markets.">
+<meta property="og:url" content="{{ORIGIN}}/housing">
+<meta property="og:image" content="{{ORIGIN}}/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#14331f">
+
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+<script>
+  (function () {
+    var t = new URLSearchParams(location.search).get("theme");
+    if (!t) { try { t = localStorage.getItem("boujee-theme"); } catch (e) {} }
+    if (t === "dark" || t === "light") document.documentElement.setAttribute("data-theme", t);
+  })();
+</script>
+</head>
+<body class="housing">
+
+<header class="topbar">
+  <a class="brand" href="/"><img src="/favicon.svg" alt="" width="26" height="26"><span>Boujeenomics</span></a>
+  <nav class="pages" aria-label="Pages">
+    <a href="/">Luxury vs index</a>
+    <a href="/housing" aria-current="page">Rent vs buy</a>
+  </nav>
+  <div class="topbar-actions">
+    <div class="seg small" id="themeSeg">
+      <button type="button" data-v="system" aria-pressed="true">Auto</button>
+      <button type="button" data-v="light" aria-pressed="false">Light</button>
+      <button type="button" data-v="dark" aria-pressed="false">Dark</button>
+    </div>
+    <button type="button" id="shareBtn" class="share">Copy link</button>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="hero-inner">
+    <p class="eyebrow" id="heroEyebrow">1995 — 2025 · ten US markets</p>
+    <h1 id="heroTitle">Rent, buy, or put it in the index?</h1>
+    <p class="hero-sub" id="heroSub">
+      A first-time buyer with the smallest down payment the bank will take. Follow that one pot of
+      money for thirty years as a starter home, a house hack, a rental property, the S&amp;P 500, or gold.
+    </p>
+    <div class="hero-stats" id="heroStats"></div>
+    <a class="scroll-cue" href="#chart">See the chart <span aria-hidden="true">↓</span></a>
+  </div>
+</section>
+
+<main class="wrap">
+
+  <section class="toolbar-wrap">
+    <div class="toolbar">
+      <div class="ctl grow"><label>Market</label>
+        <div class="picker" id="marketPicker"></div>
+      </div>
+    </div>
+    <div class="toolbar" style="margin-top:12px">
+      <div class="ctl"><label>Strategy</label>
+        <div class="seg" id="scenarioSeg">
+          <button type="button" data-v="owner" aria-pressed="true">Live in it</button>
+          <button type="button" data-v="hack" aria-pressed="false">House hack</button>
+          <button type="button" data-v="investor" aria-pressed="false">Rent it out</button>
+        </div>
+      </div>
+      <div class="ctl"><label>View</label>
+        <div class="seg" id="modeSeg">
+          <button type="button" data-v="history" aria-pressed="true">History, 1995–2025</button>
+          <button type="button" data-v="projection" aria-pressed="false">Projection, next 30 years</button>
+        </div>
+      </div>
+      <div class="ctl"><label>Inflation</label>
+        <div class="seg" id="realSeg">
+          <button type="button" data-v="0" aria-pressed="true">Nominal</button>
+          <button type="button" data-v="1" aria-pressed="false">Real</button>
+        </div>
+      </div>
+      <div class="ctl"><label>Scale</label>
+        <div class="seg" id="scaleSeg">
+          <button type="button" data-v="lin" aria-pressed="true">Linear</button>
+          <button type="button" data-v="log" aria-pressed="false">Log</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="toolbar assumptions" id="assumptions" hidden>
+      <div class="ctl"><label>Presets</label>
+        <div class="seg" id="presetSeg">
+          <button type="button" data-v="history" aria-pressed="true">Repeat the last 30 years</button>
+          <button type="button" data-v="cautious" aria-pressed="false">Cautious</button>
+        </div>
+      </div>
+      <div class="ctl"><label for="pYears">Years</label><input id="pYears" type="number" min="5" max="40" step="1" value="30"></div>
+      <div class="ctl"><label for="pHome">Home prices %/yr</label><input id="pHome" type="number" step="0.1" placeholder="market's own"></div>
+      <div class="ctl"><label for="pRent">Rents %/yr</label><input id="pRent" type="number" step="0.1" placeholder="market's own"></div>
+      <div class="ctl"><label for="pSp">S&amp;P 500 %/yr</label><input id="pSp" type="number" step="0.1"></div>
+      <div class="ctl"><label for="pGold">Gold %/yr</label><input id="pGold" type="number" step="0.1"></div>
+      <div class="ctl"><label for="pRate">Mortgage rate %</label><input id="pRate" type="number" step="0.05"></div>
+      <div class="ctl"><label for="pInfl">Inflation %/yr</label><input id="pInfl" type="number" step="0.1"></div>
+      <p class="scope-note" id="assumpNote" style="flex-basis:100%;margin:0"></p>
+    </div>
+
+    <div class="tiles" id="tiles"></div>
+  </section>
+
+  <section class="card" id="chart">
+    <p class="eyebrow" id="chartEyebrow">The chart</p>
+    <h2 id="chartTitle">What the down payment became</h2>
+    <p class="hint" id="growthHint"></p>
+    <div class="chart-scroll"><svg id="growth" class="chart" role="img" aria-labelledby="growthHint"></svg></div>
+    <div class="legend" id="growthLegend"></div>
+    <p class="short-note" id="growthNote"></p>
+  </section>
+
+  <section class="pullquote">
+    <p id="pullText"></p>
+  </section>
+
+  <section class="card">
+    <p class="eyebrow">The cash</p>
+    <h2 id="costTitle">Owning versus renting, year by year</h2>
+    <p class="hint" id="costHint"></p>
+    <div class="chart-scroll"><svg id="costs" class="chart" role="img" aria-labelledby="costHint"></svg></div>
+    <div class="legend" id="costLegend"></div>
+  </section>
+
+  <section class="card" id="markets">
+    <p class="eyebrow">Every market</p>
+    <h2 id="mktTitle">Where each strategy won</h2>
+    <p class="hint" id="mktHint"></p>
+    <div class="chart-scroll"><table id="mktTable"></table></div>
+  </section>
+
+  <section class="card" id="pick">
+    <p class="eyebrow">The rental</p>
+    <h2>Which home an investor buys</h2>
+    <p class="hint" id="pickHint"></p>
+    <div class="chart-scroll"><table id="pickTable"></table></div>
+  </section>
+
+  <section class="card" id="defs">
+    <p class="eyebrow">The definitions</p>
+    <h2>What these words mean here</h2>
+    <div class="defs">
+      <div>
+        <h3>Starter home</h3>
+        <p>A home in the <b>bottom third of its market by value</b> — specifically Zillow's bottom-tier
+          home value index, the typical home between the 5th and 35th percentile. It is whatever a
+          first-time buyer can actually reach in that city, not a fixed size. Nationally it is
+          usually a 2–3 bedroom house of around 1,000–1,400 sq ft. In San Francisco, New York and
+          Los Angeles it is often a one- or two-bedroom condo or co-op.</p>
+      </div>
+      <div>
+        <h3>Minimum down payment</h3>
+        <p id="downRules"></p>
+      </div>
+      <div>
+        <h3>House hack</h3>
+        <p>The buyer lives in one bedroom of a three-bedroom starter home and rents out the other
+          two. Each room is assumed to rent for <b id="roomShare"></b> of what the whole home would,
+          less <b id="vacancy"></b> vacancy. The loan, the down payment and the costs are the same
+          as living in it alone. In the cities where the starter tier is mostly small condos, a
+          three-bedroom at that price is hard to find, so read the house hack there as a best case.</p>
+      </div>
+      <div>
+        <h3>Rent it out</h3>
+        <p>An investor buys a home and lets the whole thing. A loan for a home you won't live in
+          needs <b id="invDown"></b> down and costs about <b id="invPrem"></b> points more in
+          interest. The investor buys whichever home type had the best cap rate at the moment of
+          purchase, and pays <b id="mgmt"></b> of collected rent for management.</p>
+      </div>
+      <div>
+        <h3>The comparison</h3>
+        <p>Every strategy starts with the same money: the down payment. After that the budgets are
+          matched year by year. If owning costs more than renting, the renter invests the
+          difference in the S&amp;P 500 or in gold. If owning costs less, the owner invests the
+          difference in the S&amp;P 500. The investor is compared against investing the down
+          payment, and any later cash the rental needs, in stocks or gold instead. So each line is
+          the same person spending the same money.</p>
+      </div>
+      <div>
+        <h3>After sale</h3>
+        <p>Home values are shown <b id="sellCost"></b> lower than the market value, which is the
+          typical cost of selling (agent and closing). Without that deduction, owning would look
+          better than it is, because a home's value can't be spent until it's sold.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <p class="eyebrow">The fine print</p>
+    <h2>Where these numbers come from</h2>
+    <p class="hint">Every series is labelled with how far you can trust it.</p>
+    <div id="prov" class="prov"></div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <p><strong>Educational tool, not investment advice.</strong> Leaves out income tax on rent and
+      on stock gains, the $250,000 / $500,000 home-sale exclusion, the mortgage interest deduction,
+      buying closing costs, refinancing, and the time and risk of being a landlord.</p>
+    <p class="muted">Home values and rents are Zillow metro data, back-cast before Zillow's coverage
+      and labelled where they are. <a href="https://github.com/danielluzhu/boujeenomics">Source on GitHub</a>.</p>
+  </div>
+</footer>
+
+<div class="tooltip" id="tip"></div>
+<div class="toast" id="toast"></div>
+<script src="/housing.js" type="module"></script>
+</body>
+</html>
